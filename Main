@@ -1,0 +1,28 @@
+# Load necessary libraries
+library(dplyr)
+
+# Read the dataset
+df <- read.csv("SCS_demand_modelling.csv")
+
+# Convert wdayindex to factor and create dummy variables (excluding Saturday as reference)
+df$wdayindex <- as.factor(df$wdayindex)
+
+# Define Saturday as the reference level (6 in wdayindex corresponds to Saturday)
+df$wdayindex <- relevel(df$wdayindex, ref = "6")
+
+# Create DSN² variable
+df$DSN2 <- df$DSN^2
+
+# Create winter indicator variables (excluding 1990/91 as reference)
+df$Winter <- as.factor(df$start_year)
+df$Winter <- relevel(df$Winter, ref = "1991")
+
+# Interaction term: TE * Winter
+df <- df %>%
+  mutate(TE_Winter = TE * as.numeric(Winter))
+
+# Fit the regression model
+model <- lm(demand_gross ~ Winter + TE_Winter + wdayindex + DSN + DSN2, data = df)
+
+# View the summary of the model
+summary(model)
