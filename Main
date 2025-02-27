@@ -1,5 +1,7 @@
 # Load necessary libraries
+library(suncalc)
 library(dplyr)
+library(lubridate)
 
 # Read the dataset
 df <- read.csv("SCS_demand_modelling.csv")
@@ -26,3 +28,37 @@ model <- lm(demand_gross ~ Winter + TE_Winter + wdayindex + DSN + DSN2, data = d
 
 # View the summary of the model
 summary(model)
+
+# Check residuals for model fit
+par(mfrow = c(2, 2))
+plot(model)
+
+
+# Define location (Example: London)
+lat <- 51.5074
+long <- -0.1278
+
+# Ensure Date is in proper format
+df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
+
+# Compute sunrise and sunset for each date
+sun_times <- getSunlightTimes(
+  date = df$Date, 
+  lat = lat, 
+  lon = long, 
+  keep = c("sunrise", "sunset"), # Keep only relevant times
+  tz = "UTC"
+)
+
+# Merge sunrise and sunset times into the dataset
+df <- cbind(df, sun_times[, c("sunrise", "sunset")])
+
+# Convert sunrise and sunset to POSIXct for calculations
+df$sunrise <- as.POSIXct(df$sunrise, tz = "UTC")
+df$sunset <- as.POSIXct(df$sunset, tz = "UTC")
+
+# Compute daylight hours
+df$daylight_hours <- as.numeric(difftime(df$sunset, df$sunrise, units = "hours"))
+
+# View results
+head(df)
