@@ -1,0 +1,131 @@
+# Load necessary libraries
+library(dplyr)
+library(lubridate)
+library(slider)
+library(stats)
+
+# Load the datasets
+df <- read.csv("SCS_demand_modelling.csv")
+df_temp <- read.csv("SCS_hourly_temp.csv")
+
+# Ensure Date is properly formatted
+df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
+
+# Create a Date-only column
+df_temp <- df_temp %>%
+  mutate(Date_only = as.Date(Date))
+
+# Compute temperature at 6pm for each day
+df_temp_6pm <- df_temp %>%
+  filter(format(Date, "%H:%M") == "18:00") %>%
+  select(Date_only, Temp_6pm = temp)  # Rename for clarity
+
+# Compute minimum daily temperature
+df_temp_min <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(Temp_min = min(temp, na.rm = TRUE))  # Get daily min temp
+
+# Merge both temperature variables
+df_temp_daily <- df_temp_6pm %>%
+  left_join(df_temp_min, by = "Date_only")
+
+# Convert df's Date column to match format
+df <- df %>%
+  mutate(Date = as.Date(Date))
+
+# Merge with df
+df <- df %>%
+  left_join(df_temp_daily, by = c("Date" = "Date_only"))
+
+# Check if merge was successful
+summary(df$Temp_6pm)
+summary(df$Temp_min)
+
+
+df <- df %>%
+  arrange(Date) %>%
+  
+  # Create lagged temperature variables
+  mutate(
+    Temp_3day_avg = slide_dbl(TO, mean, .before = 2, .complete = TRUE),  # 3-day avg
+    Temp_3day_avg_centred = slide_dbl(TO, mean, .before = 1, .after = 1, .complete = TRUE),  # Centred 3-day avg
+    Temp_6pm_3day_avg = slide_dbl(Temp_6pm, mean, .before = 2, .complete = TRUE),  # 6pm 3-day avg
+    Temp_min_3day_avg = slide_dbl(Temp_min, mean, .before = 2, .complete = TRUE),  # Min 3-day avg
+    Temp_7day_avg = slide_dbl(TO, mean, .before = 6, .complete = TRUE),  # 7-day avg
+    Temp_change = TO - lag(TO, 1),  # Change from previous day
+    Temp_weighted = 0.5 * TO + 0.3 * lag(TO, 1) + 0.2 * lag(TO, 2)  # Weighted avg
+  ) %>%
+  
+  # Compute temperature anomaly (difference from same day in past years)
+  group_by(yday(Date)) %>%
+  mutate(
+    Temp_anomaly = TO - mean(TO, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Create a dummy variable for the Christmas period
+df <- df %>%
+  mutate(Christmas_Period = ifelse(DSN >= 54 & DSN <= 62, 1, 0))
+
+# Correlation matrix
+temp_vars <- df %>% select(TE, Temp_3day_avg, Temp_3day_avg_centred, Temp_6pm_3day_avg, Temp_min_3day_avg, Temp_7day_avg, Temp_change, Temp_weighted, Temp_anomaly, demand_gross)
+cor(temp_vars, use = "complete.obs")
+
+# Baseline model using TE
+model_baseline <- lm(demand_gross ~ TE, data = df)
+
+# Models using different temperature features
+model_3day <- lm(demand_gross ~ Temp_3day_avg, data = df)
+model_centred <- lm(demand_gross ~ Temp_3day_avg_centred, data = df)
+model_6pm <- lm(demand_gross ~ Temp_6pm_3day_avg, data = df)
+model_min <- lm(demand_gross ~ Temp_min_3day_avg, data = df)
+model_7day <- lm(demand_gross ~ Temp_7day_avg, data = df)
+model_change <- lm(demand_gross ~ Temp_change, data = df)
+model_weighted <- lm(demand_gross ~ Temp_weighted, data = df)
+model_anomaly <- lm(demand_gross ~ Temp_anomaly, data = df)
+
+# Compare models using AIC and Adjusted R²
+models <- list(
+  "Baseline" = model_baseline,
+  "3-day Avg Temp" = model_3day,
+  "Centred 3-day Avg Temp" = model_centred,
+  "3-day Avg 6pm Temp" = model_6pm,
+  "3-day Avg Min Temp" = model_min,
+  "7-day Avg Temp" = model_7day,
+  "Temp Change" = model_change,
+  "Weighted Temp" = model_weighted,
+  "Temp Anomaly" = model_anomaly
+)
+
+model_results <- data.frame(
+  AIC = sapply(models, AIC),
+  Adjusted_R2 = sapply(models, function(m) summary(m)$adj.r.squared)
+)
+
+# View model comparison
+print(model_results)
+
+# Plot QQ-plots fro two models
+par(mfrow = c(1, 2))
+
+qqnorm(residuals(model_3day))
+qqline(residuals(model_3day))
+
+qqnorm(residuals(model_baseline))
+qqline(residuals(model_baseline))
+
+# Compare RMSE of top models
+high_demand <- df %>% filter(demand_gross > quantile(demand_gross, 0.90))
+RMSE_base <- sqrt(mean(residuals(model_baseline)^2))
+RMSE_3day <- sqrt(mean(residuals(model_3day)^2))
+RMSE_weighted <- sqrt(mean(residuals(model_weighted)^2))
+RMSE_6pm <- sqrt(mean(residuals(model_6pm)^2))
+
+print(c("RMSE (3-day avg temp)" = RMSE_3day, "RMSE (Weighted Temp)" = RMSE_weighted, "RMSE (6pm Temp)" = RMSE_6pm, "RMSE (Baseline)" = RMSE_base))
+
+
+df_filtered <- df %>% filter(!is.na(Temp_3day_avg))  # Keep only rows with valid values
+
+par(mfrow = c(1, 1))
+plot(df_filtered$DSN, residuals(model_3day), main = "Residuals Over Time",
+     ylab = "Residual", xlab = "DSN")
