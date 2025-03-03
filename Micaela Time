@@ -1,0 +1,44 @@
+df3 <- SCS_demand_modelling
+
+hourly_temp <- SCS_hourly_temp
+
+hourly_temp <- hourly_temp %>%
+  mutate(DateTime = as.POSIXct(Date, format = "%d/%m/%Y %H:%M")) %>%
+  mutate(Date = as.Date(DateTime), Hour = hour(DateTime))  # Extract Date & Hour separately
+
+# Compute new TO variables by grouping by day
+daily_TO <- hourly_temp %>%
+  group_by(Date) %>%
+  summarise(
+    TO_4_7 = mean(temp[Hour %in% c(16, 17, 18, 19)], na.rm = TRUE),  # 4pm-7pm
+    TO_2_6 = mean(temp[Hour %in% c(14, 15, 16, 17, 18)], na.rm = TRUE),  # 2pm-6pm 
+    TO_4_6 = mean(temp[Hour %in% c(16, 17, 18)], na.rm = TRUE),  # 4pm-6pm
+    TO_2_7 = mean(temp[Hour %in% c(14, 15, 16, 17, 18, 19)], na.rm = TRUE), #2-7pm NO
+    TO_1_6 = mean(temp[Hour %in% c(13,14, 15, 16, 17, 18)], na.rm = TRUE), #BEST
+    TO_1_7=mean(temp[Hour %in% c(13,14, 15, 16, 17, 18, 19)], na.rm = TRUE),
+    TO_12_6 = mean(temp[Hour %in% c(12,13,14, 15, 16, 17, 18)], na.rm = TRUE),
+    TO_11_6 = mean(temp[Hour %in% c(11,12,13,14, 15, 16, 17, 18)], na.rm = TRUE),
+    TO_10_6 = mean(temp[Hour %in% c(10, 12,13,14, 15, 16, 17, 18)], na.rm = TRUE)
+  )
+
+df3$Date <- as.Date(df3$Date)  
+daily_TO$Date <- as.Date(daily_TO$Date)
+
+df3 <- df3 %>% arrange(Date)
+
+df3<- df3%>%
+  mutate(
+    TEagain = TO_11_6 
+  )
+
+# Create TE variants incorporating daily lags
+df3<- df3%>%
+  mutate(
+    TEagain = (TO_11_6 + lag(TEagain, 1)) / 2,
+    TE_3L = (TO_11_6 + lag(TE, 1) + lag(TE, 2)) / 3,  # Uses TE from the previous 2 days
+    TE_4L = (TO_11_6  + lag(TE, 1) + lag(TE, 2) + lag(TE, 3)) / 4,  # Uses TE from the previous 3 days
+    TE_5L = (TO_11_6  + lag(TE, 1) + lag(TE, 2) + lag(TE, 3) + lag(TE, 4)) / 5
+  )
+
+model_TE2 <- lm(demand_gross ~ TEagain, data = df3)
+summary(model_TE2)
