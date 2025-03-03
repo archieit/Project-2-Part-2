@@ -1,0 +1,19 @@
+
+hourly_temp <- SCS_hourly_temp
+
+hourly_temp <- hourly_temp %>%
+  mutate(DateTime = as.POSIXct(Date, format = "%d/%m/%Y %H:%M")) %>%
+  mutate(Date = as.Date(DateTime), Hour = hour(DateTime))  # Extract Date & Hour separately
+
+# Compute new TO variables by grouping by day
+daily_TO <- hourly_temp %>%
+  group_by(Date) %>%
+  summarise(
+    TO_11_6 = mean(temp[Hour %in% c(11,12,13,14, 15, 16, 17, 18)], na.rm = TRUE)
+  )
+
+df3$Date <- as.Date(df3$Date)  
+daily_TO$Date <- as.Date(daily_TO$Date)
+
+# Perform left join to add TO variables to df2
+df3 <- left_join(df3, daily_TO %>% select(Date,TO_11_6), by = "Date")
