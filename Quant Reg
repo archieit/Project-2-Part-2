@@ -1,0 +1,87 @@
+
+
+# Load necessary libraries
+library(quantreg)
+library(dplyr)
+
+# Define different models with varying predictors
+models <- list(
+  "Model 0" = demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 1" = demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 2" = demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 3" = demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 4" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 5" = demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 6" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 7" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + Christmas_Period,
+  "Model 8" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2 + Christmas_Period,
+  "Model 9" = demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 9.1" = demand_gross ~ Winter + Temp_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 9.2" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted^2 + wind + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 10" = demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 11" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 12" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 13" = demand_gross ~ Winter + Temp_weighted:Winter + I(TO.x < 5) + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 14" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period
+
+)
+
+# Fit quantile regression models at τ = 0.95
+fitted_models <- lapply(models, function(f) rq(f, tau = 0.95, data = df))
+
+# Improved Pseudo R² calculation (Koenker & Machado)
+pseudo_r2_qr <- function(model, data) {
+  response <- as.character(attr(terms(model), "variables"))[2]  # Extract response variable dynamically
+  y <- data[[response]]
+  y_pred <- predict(model, newdata = data)
+  
+  # Fit intercept-only quantile regression model
+  intercept_only_model <- rq(update(model, . ~ 1), tau = model$tau, data = data)
+  y_median_pred <- predict(intercept_only_model, newdata = data)
+  
+  rho_tau <- sum(model$tau * pmax(y - y_pred, 0) + (1 - model$tau) * pmax(y_pred - y, 0))
+  rho_0 <- sum(model$tau * pmax(y - y_median_pred, 0) + (1 - model$tau) * pmax(y_median_pred - y, 0))
+  
+  return(1 - (rho_tau / rho_0))
+}
+
+# Alternative AIC & BIC Calculation for Quantile Regression
+aic_bic_qr <- function(model) {
+  n <- length(model$residuals)
+  p <- length(coef(model))
+  
+  # Use the quantile regression loss function instead of log-likelihood
+  loss <- sum(model$tau * pmax(model$residuals, 0) + (1 - model$tau) * pmax(-model$residuals, 0))
+  
+  AIC <- 2 * loss + 2 * p
+  BIC <- 2 * loss + log(n) * p
+  
+  return(c(AIC = AIC, BIC = BIC))
+}
+
+# RMSE for High-Demand Observations
+rmse_high_demand <- function(model, data) {
+  response <- as.character(attr(terms(model), "variables"))[2]  # Extract response variable dynamically
+  y_pred <- predict(model, newdata = data)
+  residuals <- data[[response]] - y_pred
+  high_demand_rows <- which(data[[response]] > quantile(data[[response]], 0.90))
+  
+  if (length(high_demand_rows) > 0) {
+    return(sqrt(mean(residuals[high_demand_rows]^2)))
+  } else {
+    return(NA)  # Avoid errors in edge cases
+  }
+}
+
+# Compute metrics for each model
+model_results <- data.frame(
+  Model = names(fitted_models),
+  AIC = sapply(fitted_models, function(m) aic_bic_qr(m)["AIC"]),
+  BIC = sapply(fitted_models, function(m) aic_bic_qr(m)["BIC"]),
+  Pseudo_R2 = sapply(fitted_models, function(m) pseudo_r2_qr(m, df)),
+  RMSE_HighDemand = sapply(fitted_models, function(m) rmse_high_demand(m, df))
+)
+
+# Print results
+print(model_results)
+
