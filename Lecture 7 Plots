@@ -1,0 +1,76 @@
+#The plot that they wanted from Lecture 7 
+
+#Checking for autocorrelation
+library(stats)
+
+# Compute residuals from model6
+residuals_model6 <- residuals(model6)
+
+# Plot the autocorrelation function (ACF) of residuals
+#First few lags have significant autocorrealtion but then drops down to about 0 
+acf(residuals_model6, main="Autocorrelation of Residuals")
+
+
+#RESIDUALS AGAINST EXPLANATORY 
+# Set up a plotting layout for multiple plots
+par(mfrow = c(2, 3))  # Adjust based on the number of explanatory variables
+
+# Plot residuals against each explanatory variable
+
+#Spread around 0
+plot(df$Winter, residuals_model6, main="Residuals vs Winter", xlab="Winter", ylab="Residuals")
+
+plot(df$Temp_weighted, residuals_model6, main="Residuals vs Temp_weighted", xlab="Temp_weighted", ylab="Residuals")
+
+#Residuals seem evernly spread around 0
+plot(df$wdayindex, residuals_model6, main="Residuals vs Weekday Index", xlab="Weekday Index", ylab="Residuals")
+
+#Looks spread around 0 so good
+plot(df$daylight_hours, residuals_model6, main="Residuals vs Daylight Hours", xlab="Daylight Hours", ylab="Residuals")
+plot(df$daylight_hours2, residuals_model6, main="Residuals vs Daylight Hours²", xlab="Daylight Hours²", ylab="Residuals")
+
+
+#The residuals appear evenly split between Christmas (1) and non-Christmas (0), which suggests that this variable is not significantly contributing to bias in the model.
+plot(df$Christmas_Period, residuals_model6, main="Residuals vs Christmas Period", xlab="Christmas Period", ylab="Residuals")
+
+# Reset plotting layout to default
+par(mfrow = c(1, 1))
+
+#Time series 
+# Plot residuals over time (assuming df has 3479 rows)
+#Appears to be seasonailty
+plot(c(1:nrow(df)), residuals_model6, type="l", xlab="Time", ylab="Residuals", main="Residuals Over Time")
+
+#Comparing actual/predicted in scatterplot
+#Mostly on y=x line so captures model very well
+plot(df$demand_gross, predict(model6),
+     main="Actual vs Predicted Demand",
+     xlab="Actual Demand (MW)", ylab="Predicted Demand (MW)",
+     pch=16, col="blue")
+abline(0,1, col="red")  # Ideal perfect fit line
+
+#Time series of actual/predicted
+#Overlay - the next one is better 
+plot(df$Date, df$demand_gross, type="l", col="black", 
+     main="Actual vs Predicted Demand Over Time", 
+     xlab="Date", ylab="Demand (MW)")
+lines(df$Date, predict(model6), col="lightcoral", lwd=2)  # Add predicted demand in red
+legend("topright", legend=c("Actual", "Predicted"), col=c("black", "lightcoral"), lty=1, lwd=2)
+
+#Side by side time series 
+# Set up side-by-side plotting layout
+#Very similar pattern showing that the model has predicted well 
+#Shows model has captured trends and seasonality 
+par(mfrow = c(1, 2))  
+
+# Actual Demand Plot
+plot(df$Date, df$demand_gross, type="l", col="black", 
+     main="Actual Demand Over Time", xlab="Date", ylab="Demand (MW)")
+
+# Predicted Demand Plot
+plot(df$Date, predict(model6), type="l", col="red", 
+     main="Predicted Demand Over Time", xlab="Date", ylab="Demand (MW)")
+
+# Reset plotting layout
+par(mfrow = c(1, 1))
+
