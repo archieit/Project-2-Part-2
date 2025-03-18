@@ -1,0 +1,288 @@
+# Load necessary libraries
+library(suncalc)
+library(dplyr)
+library(lubridate)
+library(slider)
+
+# Load the datasets
+df <- read.csv("SCS_demand_modelling.csv")
+df_temp <- read.csv("SCS_hourly_temp.csv")
+
+# Convert wdayindex to factor and create dummy variables (excluding Saturday as reference)
+df$wdayindex <- as.factor(df$wdayindex)
+
+# Define Saturday as the reference level (6 in wdayindex corresponds to Saturday)
+df$wdayindex <- relevel(df$wdayindex, ref = "6")
+
+# Define location (Example: London)
+lat <- 51.5074
+long <- -0.1278
+
+# Ensure Date is in proper format
+df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
+
+# Compute sunrise and sunset for each date
+sun_times <- getSunlightTimes(
+  date = df$Date, 
+  lat = lat, 
+  lon = long, 
+  keep = c("sunrise", "sunset"), # Keep only relevant times
+  tz = "UTC"
+)
+
+# Merge sunrise and sunset times into the dataset
+df <- cbind(df, sun_times[, c("sunrise", "sunset")])
+
+# Convert sunrise and sunset to POSIXct for calculations
+df$sunrise <- as.POSIXct(df$sunrise, tz = "UTC")
+df$sunset <- as.POSIXct(df$sunset, tz = "UTC")
+
+# Compute daylight hours
+df$daylight_hours <- as.numeric(difftime(df$sunset, df$sunrise, units = "hours"))
+
+# Create DSN² variable
+df$DSN2 <- df$DSN^2
+df$daylight_hours2 <- df$daylight_hours^2
+
+# Create winter indicator variables (excluding 1990/91 as reference)
+df$Winter <- as.factor(df$start_year)
+df$Winter <- relevel(df$Winter, ref = "1991")
+
+
+# Ensure Date is properly formatted
+df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
+
+# Extract Date and Hour separately
+df_temp <- df_temp %>%
+  mutate(Date_only = as.Date(Date), Hour = hour(Date))
+
+# Compute orginal TO variable
+df_TO <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(
+    TO = mean(temp[Hour %in% c(15, 16, 17, 18)], na.rm = TRUE)
+  )
+
+# Compute new TO variable
+df_temp_11_6pm <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(
+    Temp_11_6pm = mean(temp[Hour %in% c(12, 13, 14, 15, 16, 17, 18)], na.rm = TRUE)
+  )
+
+# Compute temperature at 6pm for each day
+df_temp_6pm <- df_temp %>%
+  filter(format(Date, "%H:%M") == "18:00") %>%
+  select(Date_only, Temp_6pm = temp)  # Rename for clarity
+
+# Compute minimum daily temperature
+df_temp_min <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(Temp_min = min(temp, na.rm = TRUE))  # Get daily min temp
+
+# Merge both temperature variables
+df_temp_daily <- df_temp_6pm %>%
+  left_join(df_temp_min, by = "Date_only")
+df_temp_daily <- df_temp_daily %>%
+  left_join(df_temp_11_6pm, by = "Date_only")
+df_temp_daily <- df_temp_daily %>%
+  left_join(df_TO, by = "Date_only")
+
+df_temp_daily <- df_temp_daily %>%
+  arrange(Date_only) %>%
+  
+  # Create lagged temperature variables
+  mutate(
+    Temp_3day_avg = slide_dbl(TO, mean, .before = 2, .complete = TRUE),  # 3-day avg
+    Temp_11_6_3day_avg = slide_dbl(Temp_11_6pm, mean, .before = 2, .complete = TRUE),  # 3-day avg
+    Temp_3day_avg_centred = slide_dbl(TO, mean, .before = 1, .after = 1, .complete = TRUE),  # Centred 3-day avg
+    Temp_6pm_3day_avg = slide_dbl(Temp_6pm, mean, .before = 2, .complete = TRUE),  # 6pm 3-day avg
+    Temp_min_3day_avg = slide_dbl(Temp_min, mean, .before = 2, .complete = TRUE),  # Min 3-day avg
+    Temp_7day_avg = slide_dbl(TO, mean, .before = 6, .complete = TRUE),  # 7-day avg
+    Temp_change = TO - lag(TO, 1),  # Change from previous day
+    Temp_weighted = 0.5 * Temp_11_6pm + 0.3 * lag(Temp_11_6pm, 1) + 0.2 * lag(Temp_11_6pm, 2)  # Weighted avg
+  ) %>%
+  
+  # Compute temperature anomaly (difference from same day in past years)
+  group_by(yday(Date_only)) %>%
+  mutate(
+    Temp_anomaly = TO - mean(TO, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+df_temp_daily<- df_temp_daily%>%
+  mutate(
+    TE_11_6 = Temp_11_6pm 
+  )
+
+# Create TE variants incorporating daily lags
+df_temp_daily<- df_temp_daily%>%
+  mutate(
+    TE_11_6 = (Temp_11_6pm + lag(TE_11_6, 1)) / 2)
+
+# Convert df's Date column to match format
+df <- df %>%
+  mutate(Date = as.Date(Date))
+
+# Merge with df
+df <- df %>%
+  left_join(df_temp_daily, by = c("Date" = "Date_only"))
+
+# Correlation matrix
+temp_vars <- df %>% select(TE, Temp_3day_avg, Temp_3day_avg_centred, Temp_6pm_3day_avg, Temp_min_3day_avg, Temp_7day_avg, Temp_change, Temp_weighted, Temp_anomaly, demand_gross)
+cor(temp_vars, use = "complete.obs")
+
+
+# Create a dummy variable for the Christmas period
+df <- df %>%
+  mutate(Christmas_Period = ifelse(DSN >= 54 & DSN <= 62, 1, 0))
+
+# Fit the regression model
+model <- lm(demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model1 <- lm(demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model2 <- lm(demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model3 <- lm(demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model4 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model5 <- lm(demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model6 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period, data = df)
+model7 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + Christmas_Period, data = df)
+model8 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2 + Christmas_Period, data = df)
+model9 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours2 + Christmas_Period, data = df)
+model10 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours2 + Christmas_Period, data = df)
+
+# View the summary of the model
+#summary(model3)
+
+models <- list(
+  "Baseline" = model,
+  "Temp_3day_avg" = model1,
+  "Temp_11_6_3day_avg" = model2,
+  "TE_11_6" = model3,
+  "Temp_weighted" = model4,
+  "Temp_11_6pm" = model5,
+  "daylight_hours with squared" = model6,
+  "daylight_hours without squared" = model7,
+  "daylight_hours just squared" = model8,
+  "wind" = model9,
+  "solar" = model10
+)
+model_results <- data.frame(
+  AIC = sapply(models, AIC),
+  Adjusted_R2 = sapply(models, function(m) summary(m)$adj.r.squared)
+)
+# View model comparison
+print(model_results)
+
+# Check residuals for model fit
+par(mfrow = c(2, 2))
+plot(model6)
+
+df_filtered <- df %>% filter(!is.na(Temp_11_6_3day_avg))  # Keep only rows with valid values
+
+par(mfrow = c(1, 1))
+plot(df_filtered$demand_gross, residuals(model), main = "Residuals Over Time",
+     ylab = "Residual", xlab = "DSN")
+
+# Compare RMSE of top models
+high_demand <- df %>% filter(demand_gross > quantile(demand_gross, 0.90))
+RMSE_og <- sqrt(mean(residuals(model)^2))
+
+print(RMSE_og)
+
+# Compare RMSE of top models
+high_demand <- df %>% filter(demand_gross > quantile(demand_gross, 0.90))
+RMSE_base <- sqrt(mean(residuals(model)^2))
+RMSE_3day <- sqrt(mean(residuals(model1)^2))
+RMSE_11_6 <- sqrt(mean(residuals(model3)^2))
+RMSE_6pm <- sqrt(mean(residuals(model4)^2))
+
+print(c("RMSE (3-day avg temp)" = RMSE_3day, "RMSE (11-6)" = RMSE_11_6, "RMSE (6pm Temp)" = RMSE_6pm, "RMSE (Baseline)" = RMSE_base))
+
+
+
+
+# Load necessary libraries
+library(quantreg)
+library(dplyr)
+
+# Define different models with varying predictors
+models <- list(
+  "Model 0" = demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 1" = demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 2" = demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 3" = demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 4" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 5" = demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
+  "Model 6" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 7" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + Christmas_Period,
+  "Model 8" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2 + Christmas_Period,
+  "Model 9" = demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 9.1" = demand_gross ~ Winter + Temp_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 9.2" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted^2 + wind + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 10" = demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 11" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 12" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 13" = demand_gross ~ Winter + Temp_weighted:Winter + I(TO.x < 5) + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
+  "Model 14" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period
+  
+)
+
+# Fit quantile regression models at τ = 0.95
+fitted_models <- lapply(models, function(f) rq(f, tau = 0.95, data = df))
+
+# Improved Pseudo R² calculation (Koenker & Machado)
+pseudo_r2_qr <- function(model, data) {
+  response <- as.character(attr(terms(model), "variables"))[2]  # Extract response variable dynamically
+  y <- data[[response]]
+  y_pred <- predict(model, newdata = data)
+  
+  # Fit intercept-only quantile regression model
+  intercept_only_model <- rq(update(model, . ~ 1), tau = model$tau, data = data)
+  y_median_pred <- predict(intercept_only_model, newdata = data)
+  
+  rho_tau <- sum(model$tau * pmax(y - y_pred, 0) + (1 - model$tau) * pmax(y_pred - y, 0))
+  rho_0 <- sum(model$tau * pmax(y - y_median_pred, 0) + (1 - model$tau) * pmax(y_median_pred - y, 0))
+  
+  return(1 - (rho_tau / rho_0))
+}
+
+# Alternative AIC & BIC Calculation for Quantile Regression
+aic_bic_qr <- function(model) {
+  n <- length(model$residuals)
+  p <- length(coef(model))
+  
+  # Use the quantile regression loss function instead of log-likelihood
+  loss <- sum(model$tau * pmax(model$residuals, 0) + (1 - model$tau) * pmax(-model$residuals, 0))
+  
+  AIC <- 2 * loss + 2 * p
+  BIC <- 2 * loss + log(n) * p
+  
+  return(c(AIC = AIC, BIC = BIC))
+}
+
+# RMSE for High-Demand Observations
+rmse_high_demand <- function(model, data) {
+  response <- as.character(attr(terms(model), "variables"))[2]  # Extract response variable dynamically
+  y_pred <- predict(model, newdata = data)
+  residuals <- data[[response]] - y_pred
+  high_demand_rows <- which(data[[response]] > quantile(data[[response]], 0.90))
+  
+  if (length(high_demand_rows) > 0) {
+    return(sqrt(mean(residuals[high_demand_rows]^2)))
+  } else {
+    return(NA)  # Avoid errors in edge cases
+  }
+}
+
+# Compute metrics for each model
+model_results <- data.frame(
+  Model = names(fitted_models),
+  AIC = sapply(fitted_models, function(m) aic_bic_qr(m)["AIC"]),
+  BIC = sapply(fitted_models, function(m) aic_bic_qr(m)["BIC"]),
+  Pseudo_R2 = sapply(fitted_models, function(m) pseudo_r2_qr(m, df)),
+  RMSE_HighDemand = sapply(fitted_models, function(m) rmse_high_demand(m, df))
+)
+
+# Print results
+print(model_results)
+# Best Model: 9.1
