@@ -1,0 +1,102 @@
+#Time series for all years
+plot(c(1:nrow(df)), residuals_model6, type="l", xlab="Time", ylab="Residuals", main="Residuals Over Time")
+
+#Compute residuals from model6
+residuals_model6 <- residuals(model6)
+
+#Comparing actual/predicted in scatterplot
+plot(df$demand_gross, predict(model6),
+     main="Actual vs Predicted Demand",
+     xlab="Actual Demand (MW)", ylab="Predicted Demand (MW)",
+     pch=16, col="maroon")
+abline(0,1, col="black")  
+
+
+#Side by side time series 
+par(mfrow = c(1, 2))  
+
+#Actual demand time series plot
+plot(df$Date, df$demand_gross, type="l", col="black", 
+     main="Actual Demand Over Time", xlab="Time", ylab="Demand (MW)")
+
+#Predicted demand time series plot
+plot(df$Date, predict(model6), type="l", col="maroon", 
+     main="Predicted Demand Over Time", xlab="Time", ylab="Demand (MW)")
+
+par(mfrow = c(1, 1))
+
+#Full Comparison of density plots 
+#plot actual demand density
+plot(density(df$demand_gross, na.rm = TRUE), 
+     main = "PDF of Actual vs Predicted Demand", 
+     xlab = "Demand", 
+     ylab = "Density", 
+     col = "black", 
+     lwd = 2)
+
+# Add predicted demand density 
+lines(density(df$predicted_demand, na.rm = TRUE), 
+      col = "maroon", 
+      lwd = 2)
+
+legend("topright", legend = c("Actual Demand", "Predicted Demand"), 
+       col = c("black", "maroon"), lwd = 2)
+
+
+
+#zoomed in density 
+#define quantiles
+upper_bound <- max(df$demand_gross, na.rm = TRUE)
+lower_bound <- quantile(df$demand_gross, 0.95, na.rm = TRUE)  
+
+q99 <- quantile(df$demand_gross, 0.99, na.rm = TRUE) 
+
+#Reduce the y-axis range by scaling down the maximum density
+y_upper_limit <- 0.5 * max(density(df$demand_gross)$y, 
+                           density(df$predicted_demand)$y) 
+
+plot(density(df$demand_gross, na.rm = TRUE), 
+     main = "PDF of Actual vs Predicted Demand (Upper Demand Zoom)", 
+     xlab = "Demand", 
+     ylab = "Density", 
+     col = "black", 
+     lwd = 2,
+     xlim = c(lower_bound, upper_bound),
+     ylim = c(0, y_upper_limit))  
+
+#predicted demand density
+lines(density(df$predicted_demand, na.rm = TRUE), 
+      col = "maroon", 
+      lwd = 2)
+
+#add line for 99th quantile
+abline(v = q99, col = "black", lwd = 2, lty = 2)
+
+
+legend("topright", legend = c("Actual Demand", "Predicted Demand"), 
+       col = c("black", "maroon"), lwd = 2)
+
+
+#95th quantile density 
+#Filter the dataset to keep only values above the 95th quantile
+df_q95 <- df[df$demand_gross >= q95, ]
+
+#density of actual demand in the top 5%
+plot(density(df_q95$demand_gross, na.rm = TRUE), 
+     main = "PDF of Actual vs Predicted Demand (95th Quantile)", 
+     xlab = "Demand", 
+     ylab = "Density", 
+     col = "black", 
+     lwd = 2)
+    
+
+#predicted demand density for top 5%
+lines(density(df_q95$predicted_demand, na.rm = TRUE), 
+      col = "maroon", 
+      lwd = 2)
+
+#add line for 99 quantile
+abline(v = q99, col = "black", lwd = 2, lty = 2)
+
+legend("topright", legend = c("Actual Demand", "Predicted Demand"), 
+       col = c("black", "maroon"), lwd = 2)
