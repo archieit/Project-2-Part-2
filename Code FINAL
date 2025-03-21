@@ -143,17 +143,17 @@ df <- df %>%
   filter(!(DSN >= 54 & DSN <= 62))
 
 # Fit the regression model
-model <- lm(demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
-model1 <- lm(demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
-model2 <- lm(demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
-model3 <- lm(demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
-model4 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
-model5 <- lm(demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
+model <- lm(demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2, data = df)
+model1 <- lm(demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2, data = df)
+model2 <- lm(demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2, data = df)
+model3 <- lm(demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2, data = df)
+model4 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2, data = df)
+model5 <- lm(demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2, data = df)
 model6 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2, data = df)
-model7 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + Christmas_Period, data = df)
-model8 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2 + Christmas_Period, data = df)
-model9 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours2 + Christmas_Period, data = df)
-model10 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours2 + Christmas_Period, data = df)
+model7 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours, data = df)
+model8 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2, data = df)
+model9 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours2, data = df)
+model10 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours2, data = df)
 
 # View the summary of the model
 #summary(model3)
