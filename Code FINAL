@@ -14,9 +14,9 @@ df$wdayindex <- as.factor(df$wdayindex)
 # Define Saturday as the reference level (6 in wdayindex corresponds to Saturday)
 df$wdayindex <- relevel(df$wdayindex, ref = "6")
 
-# Define location (Example: London)
-lat <- 51.5074
-long <- -0.1278
+# Define location of energy demand centre
+lat <- 52.36701
+long <- -1.181587
 
 # Ensure Date is in proper format
 df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
@@ -48,7 +48,6 @@ df$daylight_hours2 <- df$daylight_hours^2
 df$Winter <- as.factor(df$start_year)
 df$Winter <- relevel(df$Winter, ref = "1991")
 
-
 # Ensure Date is properly formatted
 df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
 
@@ -56,7 +55,7 @@ df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
 df_temp <- df_temp %>%
   mutate(Date_only = as.Date(Date), Hour = hour(Date))
 
-# Compute orginal TO variable
+# Compute original TO variable
 df_TO <- df_temp %>%
   group_by(Date_only) %>%
   summarise(
@@ -134,11 +133,10 @@ cor(temp_vars, use = "complete.obs")
 
 
 # Create a dummy variable for the Christmas period
-#df <- df %>%
- # mutate(Christmas_Period = ifelse(DSN >= 54 & DSN <= 62, 1, 0))
+df <- df %>%
+  mutate(Christmas_Period = ifelse(DSN >= 54 & DSN <= 62, 1, 0))
 
-
-#Remove Christmas period data
+# Remove Christmas period data
 df <- df %>%
   filter(!(DSN >= 54 & DSN <= 62))
 
@@ -154,6 +152,8 @@ model7 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight
 model8 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2, data = df)
 model9 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours2, data = df)
 model10 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours2, data = df)
+# Best Model: 6
+
 
 # View the summary of the model
 #summary(model3)
@@ -182,11 +182,12 @@ print(model_results)
 par(mfrow = c(2, 2))
 plot(model6)
 
-df_filtered <- df %>% filter(!is.na(Temp_11_6_3day_avg))  # Keep only rows with valid values
-
 par(mfrow = c(1, 1))
-plot(df_filtered$demand_gross, residuals(model), main = "Residuals Over Time",
+plot(df$DSN, residuals(model6), main = "Residuals Over Time",
      ylab = "Residual", xlab = "DSN")
+
+
+df_filtered <- df %>% filter(!is.na(Temp_11_6_3day_avg))  # Keep only rows with valid values
 
 # Compare RMSE of top models
 high_demand <- df %>% filter(demand_gross > quantile(demand_gross, 0.90))
@@ -212,82 +213,79 @@ library(dplyr)
 
 # Define different models with varying predictors
 models <- list(
-  "Model 0" = demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
-  "Model 1" = demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
-  "Model 2" = demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
-  "Model 3" = demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
-  "Model 4" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
-  "Model 5" = demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2 + Christmas_Period,
-  "Model 6" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 7" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + Christmas_Period,
-  "Model 8" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2 + Christmas_Period,
-  "Model 9" = demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 9.1" = demand_gross ~ Winter + Temp_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 9.2" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted^2 + wind + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 10" = demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 11" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 12" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:solar_S + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 13" = demand_gross ~ Winter + Temp_weighted:Winter + I(TO.x < 5) + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period,
-  "Model 14" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period
+  "Model 0" = demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2,
+  "Model 1" = demand_gross ~ Winter + Temp_3day_avg:Winter + wdayindex + DSN + DSN2,
+  "Model 2" = demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN + DSN2,
+  "Model 3" = demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2,
+  "Model 4" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2,
+  "Model 5" = demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2,
+  "Model 6" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2,
+  "Model 7" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours,
+  "Model 8" = demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2,
+  "Model 9" = demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours + daylight_hours2,
+  "Model 9.1" = demand_gross ~ Winter + Temp_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2,
+  "Model 9.2" = demand_gross ~ Winter + Temp_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2,
+  "Model 10" = demand_gross ~ Winter + Temp_weighted:Winter + solar_S + wdayindex + daylight_hours + daylight_hours2,
+  "Model 11" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2,
+  "Model 12" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:solar_S + wdayindex + daylight_hours + daylight_hours2,
+  "Model 13" = demand_gross ~ Winter + Temp_weighted:Winter + I(TO.x < 5) + wdayindex + daylight_hours + daylight_hours2,
+  "Model 14" = demand_gross ~ Winter + Temp_weighted:Winter + Temp_weighted:wind + wdayindex + daylight_hours + daylight_hours2
   
 )
 
 # Fit quantile regression models at τ = 0.95
 fitted_models <- lapply(models, function(f) rq(f, tau = 0.95, data = df))
 
-# Improved Pseudo R² calculation (Koenker & Machado)
-pseudo_r2_qr <- function(model, data) {
-  response <- as.character(attr(terms(model), "variables"))[2]  # Extract response variable dynamically
+# Compute Pinball Loss for a given quantile regression model
+pinball_loss <- function(model, data) {
+  response <- all.vars(model$terms)[1]  # Extract response variable
   y <- data[[response]]
   y_pred <- predict(model, newdata = data)
+  tau <- model$tau
   
-  # Fit intercept-only quantile regression model
-  intercept_only_model <- rq(update(model, . ~ 1), tau = model$tau, data = data)
-  y_median_pred <- predict(intercept_only_model, newdata = data)
+  # Compute Pinball Loss (Check Loss function)
+  loss <- mean((y - y_pred) * (tau - (y < y_pred)))  # Use mean() instead of sum()/length(y)
   
-  rho_tau <- sum(model$tau * pmax(y - y_pred, 0) + (1 - model$tau) * pmax(y_pred - y, 0))
-  rho_0 <- sum(model$tau * pmax(y - y_median_pred, 0) + (1 - model$tau) * pmax(y_median_pred - y, 0))
-  
-  return(1 - (rho_tau / rho_0))
+  return(loss)
 }
 
-# Alternative AIC & BIC Calculation for Quantile Regression
-aic_bic_qr <- function(model) {
+# Compute Generalised Cross-Validation (GCV) for a quantile regression model
+gcv_qr <- function(model, data) {
+  response <- all.vars(model$terms)[1]  # Extract response variable
+  y <- data[[response]]
+  n <- length(y)  # Number of observations
+  p <- length(coef(model))  # Number of parameters
+  
+  loss <- pinball_loss(model, data)  # Use Pinball Loss
+  
+  # Compute GCV using the formula from Shin et al. (2022)
+  gcv <- loss / ((1 - p / n)^2)  # Use mean loss
+  
+  return(gcv)
+}
+
+# Compute AIC and BIC for quantile regression
+aic_bic_qr <- function(model, data) {
   n <- length(model$residuals)
-  p <- length(coef(model))
+  p <- length(coef(model))  # Number of parameters
   
-  # Use the quantile regression loss function instead of log-likelihood
-  loss <- sum(model$tau * pmax(model$residuals, 0) + (1 - model$tau) * pmax(-model$residuals, 0))
+  loss <- pinball_loss(model, data)  # Use mean Pinball Loss
   
-  AIC <- 2 * loss + 2 * p
-  BIC <- 2 * loss + log(n) * p
+  # Compute AIC_q and BIC_q (corrected)
+  AIC_q <- n * log(loss) + 2 * p
+  BIC_q <- n * log(loss) + p * log(n)
   
-  return(c(AIC = AIC, BIC = BIC))
-}
-
-# RMSE for High-Demand Observations
-rmse_high_demand <- function(model, data) {
-  response <- as.character(attr(terms(model), "variables"))[2]  # Extract response variable dynamically
-  y_pred <- predict(model, newdata = data)
-  residuals <- data[[response]] - y_pred
-  high_demand_rows <- which(data[[response]] > quantile(data[[response]], 0.90))
-  
-  if (length(high_demand_rows) > 0) {
-    return(sqrt(mean(residuals[high_demand_rows]^2)))
-  } else {
-    return(NA)  # Avoid errors in edge cases
-  }
+  return(c(AIC_q = AIC_q, BIC_q = BIC_q))
 }
 
 # Compute metrics for each model
 model_results <- data.frame(
   Model = names(fitted_models),
-  AIC = sapply(fitted_models, function(m) aic_bic_qr(m)["AIC"]),
-  BIC = sapply(fitted_models, function(m) aic_bic_qr(m)["BIC"]),
-  Pseudo_R2 = sapply(fitted_models, function(m) pseudo_r2_qr(m, df)),
-  RMSE_HighDemand = sapply(fitted_models, function(m) rmse_high_demand(m, df))
+  Pinball = sapply(fitted_models, function(m) pinball_loss(m, df)),
+  GCV = sapply(fitted_models, function(m) gcv_qr(m, df)),
+  AIC = sapply(fitted_models, function(m) aic_bic_qr(m, df)[1]),
+  BIC = sapply(fitted_models, function(m) aic_bic_qr(m, df)[2])
 )
 
 # Print results
 print(model_results)
-# Best Model: 9.1
