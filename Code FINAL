@@ -134,8 +134,13 @@ cor(temp_vars, use = "complete.obs")
 
 
 # Create a dummy variable for the Christmas period
+#df <- df %>%
+ # mutate(Christmas_Period = ifelse(DSN >= 54 & DSN <= 62, 1, 0))
+
+
+#Remove Christmas period data
 df <- df %>%
-  mutate(Christmas_Period = ifelse(DSN >= 54 & DSN <= 62, 1, 0))
+  filter(!(DSN >= 54 & DSN <= 62))
 
 # Fit the regression model
 model <- lm(demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
@@ -144,7 +149,7 @@ model2 <- lm(demand_gross ~ Winter + Temp_11_6_3day_avg:Winter + wdayindex + DSN
 model3 <- lm(demand_gross ~ Winter + TE_11_6:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
 model4 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
 model5 <- lm(demand_gross ~ Winter + Temp_11_6pm:Winter + wdayindex + DSN + DSN2 + Christmas_Period, data = df)
-model6 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2 + Christmas_Period, data = df)
+model6 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2, data = df)
 model7 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + Christmas_Period, data = df)
 model8 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours2 + Christmas_Period, data = df)
 model9 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wind + wdayindex + daylight_hours2 + Christmas_Period, data = df)
