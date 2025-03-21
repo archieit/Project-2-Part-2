@@ -100,3 +100,39 @@ abline(v = q99, col = "black", lwd = 2, lty = 2)
 
 legend("topright", legend = c("Actual Demand", "Predicted Demand"), 
        col = c("black", "maroon"), lwd = 2)
+
+
+
+#quantPDF
+#Extract model 9.1
+model_9_1 <- fitted_models[["Model 9.1"]]
+
+#Predict using the quantile regression model
+df$predicted_qr_95 <- predict(model_9_1, newdata = df)
+
+q95 <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
+q99 <- quantile(df$demand_gross, 0.99, na.rm = TRUE)
+
+#Keep only top 5% of actual demand
+df_q95 <- df[df$demand_gross >= q95, ]
+
+
+#Plot actual demand density
+plot(density(df_q95$demand_gross, na.rm = TRUE), 
+     main = "PDF of Actual vs Predicted Demand", 
+     xlab = "Demand", 
+     ylab = "Density", 
+     col = "black", 
+     lwd = 2)
+
+#Plot predicted demand from quantile regression
+lines(density(df_q95$predicted_qr_95, na.rm = TRUE), 
+      col = "maroon", 
+      lwd = 2)
+
+#Add 99th quantile 
+abline(v = q99, col = "black", lwd = 2, lty = 2)
+
+legend("topright", legend = c("Actual Demand", "Predicted Demand"), 
+       col = c("black", "maroon"), lwd = 2)
+
