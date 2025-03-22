@@ -1,4 +1,4 @@
-# Load necessary libraries
+# Load libraries
 library(suncalc)
 library(dplyr)
 library(lubridate)
@@ -7,47 +7,45 @@ library(ggplot2)
 library(ggpubr)
 library(tidyr)
 
-# Load the datasets
+# Load datasets
 df <- read.csv("SCS_demand_modelling.csv")
 df_temp <- read.csv("SCS_hourly_temp.csv")
 
-# Convert wdayindex to factor and create dummy variables (excluding Saturday as reference)
+# Set wdayindex as factor with Saturday as reference
 df$wdayindex <- as.factor(df$wdayindex)
-
-# Define Saturday as the reference level (6 in wdayindex corresponds to Saturday)
 df$wdayindex <- relevel(df$wdayindex, ref = "6")
 
-# Define location of energy demand centre
+# Set location coordinates
 lat <- 52.36701
 long <- -1.181587
 
-# Ensure Date is in proper format
+# Format Date column
 df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
 
-# Compute sunrise and sunset for each date
+# Get sunrise and sunset times
 sun_times <- getSunlightTimes(
   date = df$Date, 
   lat = lat, 
   lon = long, 
-  keep = c("sunrise", "sunset"), # Keep only relevant times
+  keep = c("sunrise", "sunset"),
   tz = "UTC"
 )
 
-# Merge sunrise and sunset times into the dataset
+# Add sunrise and sunset to data
 df <- cbind(df, sun_times[, c("sunrise", "sunset")])
 
-# Convert sunrise and sunset to POSIXct for calculations
+# Convert times to POSIXct
 df$sunrise <- as.POSIXct(df$sunrise, tz = "UTC")
 df$sunset <- as.POSIXct(df$sunset, tz = "UTC")
 
-# Compute daylight hours
-df$daylight_hours <- as.numeric(difftime(df$sunset, df$sunrise, units = "hours"))
+# Calculate daylight hours
+df$daylight <- as.numeric(difftime(df$sunset, df$sunrise, units = "hours"))
 
 # Create squared variables
 df$DSN2 <- df$DSN^2
-df$daylight_hours2 <- df$daylight_hours^2
+df$daylight2 <- df$daylight^2
 
-# Create winter indicator variables (excluding 1990/91 as reference)
+# Set Winter as factor with 1991 as reference
 df$Winter <- as.factor(df$start_year)
 df$Winter <- relevel(df$Winter, ref = "1991")
 
@@ -62,124 +60,121 @@ ggplot(df, aes(x = DSN, y = demand_gross)) +
     axis.text = element_text(size = 10)
   )
 
+# Save plot
 ggsave("demand_dsn.png", width = 8, height = 5, dpi = 350)
-
-# Remove Christmas period data
-df <- df %>%
-  filter(!(DSN >= 52 & DSN <= 64))
-
-ggplot(df, aes(x = DSN, y = demand_gross)) +
-  geom_point(colour = "#3f0630", alpha = 0.75) +  # Scatter points
-  geom_smooth(colour = "#c8398b", method = "loess", se = FALSE, linewidth = 1.2) +  # Smooth line
-  labs(x = "DSN",
-       y = "Gross Demand") +
-  theme_minimal() +
-  theme(
-    axis.title = element_text(size = 16),
-    axis.text = element_text(size = 10)
-  )
-
 ggsave("dsn.png", width = 8, height = 5, dpi = 350)
 
-# Ensure Date is properly formatted
+# Format Date column in temperature data
 df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
 
-# Extract Date and Hour separately
+# Extract date and hour
 df_temp <- df_temp %>%
   mutate(Date_only = as.Date(Date), Hour = hour(Date))
 
-# Compute original TO variable
+# Calculate original TO (3–6pm average)
 df_TO <- df_temp %>%
   group_by(Date_only) %>%
   summarise(
     TO = mean(temp[Hour %in% c(15, 16, 17, 18)], na.rm = TRUE)
   )
 
-# Compute new TO variable
+# Calculate new T_11_18 (11am–6pm average)
 df_T_11_18 <- df_temp %>%
   group_by(Date_only) %>%
   summarise(
-    T_11_18 = mean(temp[Hour %in% c(12, 13, 14, 15, 16, 17, 18)], na.rm = TRUE)
+    T_11_18 = mean(temp[Hour %in% c(11:18)], na.rm = TRUE)
   )
 
-# Compute temperature at 6pm for each day
+# Get temperature at 6pm
 df_T_18 <- df_temp %>%
   filter(format(Date, "%H:%M") == "18:00") %>%
-  select(Date_only, T_18 = temp)  # Rename for clarity
+  select(Date_only, T_18 = temp)
 
-# Compute minimum daily temperature
+# Get minimum daily temperature
 df_T_min <- df_temp %>%
   group_by(Date_only) %>%
-  summarise(T_min = min(temp, na.rm = TRUE))  # Get daily min temp
+  summarise(T_min = min(temp, na.rm = TRUE))
 
-# Merge both temperature variables
+# Merge daily temperature summaries
 df_temp_daily <- df_T_18 %>%
-  left_join(df_T_min, by = "Date_only")
-df_temp_daily <- df_temp_daily %>%
-  left_join(df_T_11_18, by = "Date_only")
-df_temp_daily <- df_temp_daily %>%
+  left_join(df_T_min, by = "Date_only") %>%
+  left_join(df_T_11_18, by = "Date_only") %>%
   left_join(df_TO, by = "Date_only")
 
+# Create lagged and smoothed temperature features
 df_temp_daily <- df_temp_daily %>%
   arrange(Date_only) %>%
-  
-  # Create lagged temperature variables
   mutate(
-    T_3avg = slide_dbl(TO, mean, .before = 2, .complete = TRUE),  # 3-day avg
-    T_11_18_3avg = slide_dbl(T_11_18, mean, .before = 2, .complete = TRUE),  # 3-day avg
-    T_3avg_centred = slide_dbl(TO, mean, .before = 1, .after = 1, .complete = TRUE),  # Centred 3-day avg
-    T_18_3avg = slide_dbl(T_18, mean, .before = 2, .complete = TRUE),  # 6pm 3-day avg
-    T_min_3avg = slide_dbl(T_min, mean, .before = 2, .complete = TRUE),  # Min 3-day avg
-    T_7avg = slide_dbl(TO, mean, .before = 6, .complete = TRUE),  # 7-day avg
-    T_change = TO - lag(TO, 1),  # Change from previous day
-    T_weighted = 0.5 * T_11_18 + 0.3 * lag(T_11_18, 1) + 0.2 * lag(T_11_18, 2)  # Weighted avg
+    T_3avg = slide_dbl(TO, mean, .before = 2, .complete = TRUE),
+    T_11_18_3avg = slide_dbl(T_11_18, mean, .before = 2, .complete = TRUE),
+    T_3avg_centred = slide_dbl(TO, mean, .before = 1, .after = 1, .complete = TRUE),
+    T_18_3avg = slide_dbl(T_18, mean, .before = 2, .complete = TRUE),
+    T_min_3avg = slide_dbl(T_min, mean, .before = 2, .complete = TRUE),
+    T_7avg = slide_dbl(TO, mean, .before = 6, .complete = TRUE),
+    T_change = TO - lag(TO, 1),
+    T_weighted = 0.5 * T_11_18 + 0.3 * lag(T_11_18, 1) + 0.2 * lag(T_11_18, 2)
   ) %>%
   
-  # Compute temperature anomaly (difference from same day in past years)
+  # Compute daily temperature anomaly
   group_by(yday(Date_only)) %>%
   mutate(
     T_anomaly = TO - mean(TO, na.rm = TRUE)
   ) %>%
   ungroup()
 
-df_temp_daily<- df_temp_daily%>%
+# Copy T_11_18 to new TE_11_18 variable
+df_temp_daily <- df_temp_daily %>%
   mutate(
     TE_11_18 = T_11_18 
   )
 
-# Create TE variants incorporating daily lags
-df_temp_daily<- df_temp_daily%>%
-  mutate(
-    TE_11_18 = (T_11_18 + lag(TE_11_18, 1)) / 2)
+# Create TE_11_18 using lagged values
+df_temp_daily <- df_temp_daily %>%
+  mutate(TE_11_18 = (T_11_18 + lag(TE_11_18, 1)) / 2)
 
-# Convert df's Date column to match format
+# Format Date column to match for merging
 df <- df %>%
   mutate(Date = as.Date(Date))
 
-# Merge with df
+# Merge temperature features into main dataset
 df <- df %>%
   left_join(df_temp_daily, by = c("Date" = "Date_only"))
 
-# Correlation matrix
-temp_vars <- df %>% select(TE, T_3avg, T_3avg_centred, T_18_3avg, T_min_3avg, T_7avg, T_change, T_weighted, T_anomaly, demand_gross)
+# Compute correlation matrix of temperature variables and demand
+temp_vars <- df %>%
+  select(TE, T_3avg, T_3avg_centred, T_18_3avg, T_min_3avg, T_7avg, T_change, T_weighted, T_anomaly, demand_gross)
 cor(temp_vars, use = "complete.obs")
 
-# Fit the regression model
+# Remove Christmas period (weeks 52–64)
+df <- df %>%
+  filter(!(DSN >= 52 & DSN <= 64))
+
+# Plot demand vs DSN with smooth curve
+ggplot(df, aes(x = DSN, y = demand_gross)) +
+  geom_point(colour = "#3f0630", alpha = 0.75) +
+  geom_smooth(colour = "#c8398b", method = "loess", se = FALSE, linewidth = 1.2) +
+  labs(x = "DSN", y = "Gross Demand") +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 10)
+  )
+
+# Fit multiple regression models with different temperature variables
 model <- lm(demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2, data = df)
 model1 <- lm(demand_gross ~ Winter + T_3avg:Winter + wdayindex + DSN + DSN2, data = df)
 model2 <- lm(demand_gross ~ Winter + T_11_18_3avg:Winter + wdayindex + DSN + DSN2, data = df)
 model3 <- lm(demand_gross ~ Winter + TE_11_18:Winter + wdayindex + DSN + DSN2, data = df)
 model4 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + DSN + DSN2, data = df)
 model5 <- lm(demand_gross ~ Winter + T_11_18:Winter + wdayindex + DSN + DSN2, data = df)
-model6 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight_hours + daylight_hours2, data = df)
-model7 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight_hours, data = df)
-model8 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight_hours2, data = df)
-model9 <- lm(demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight_hours2, data = df)
-model10 <- lm(demand_gross ~ Winter + T_weighted:Winter + solar_S + wdayindex + daylight_hours2, data = df)
-# Best Model: 6
+model6 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = df)
+model7 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight, data = df)
+model8 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight2, data = df)
+model9 <- lm(demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight2, data = df)
+model10 <- lm(demand_gross ~ Winter + T_weighted:Winter + solar_S + wdayindex + daylight2, data = df)
+# Best model: model6
 
-
-# View the summary of the models
+# Compare model AIC and adjusted R²
 models <- list(
   "baseline" = model,
   "T_3avg" = model1,
@@ -187,81 +182,79 @@ models <- list(
   "TE_11_18" = model3,
   "T_weighted" = model4,
   "T_11_18" = model5,
-  "daylight_hours with squared" = model6,
-  "daylight_hours without squared" = model7,
-  "daylight_hours just squared" = model8,
+  "daylight with squared" = model6,
+  "daylight without squared" = model7,
+  "daylight just squared" = model8,
   "wind" = model9,
   "solar" = model10
 )
+
+# View model performance metrics
 model_results <- data.frame(
   AIC = sapply(models, AIC),
   Adjusted_R2 = sapply(models, function(m) summary(m)$adj.r.squared)
 )
-# View model comparison
 print(model_results)
 
-df_filtered <- df %>% filter(!is.na(T_11_18_3avg))  # Keep only rows with valid values
-
-# Compare RMSE of top models
+# Compare RMSE for selected models
 high_demand <- df %>% filter(demand_gross > quantile(demand_gross, 0.90))
 RMSE_og <- sqrt(mean(residuals(model)^2))
-
 print(RMSE_og)
 
-# Compare RMSE of top models
-high_demand <- df %>% filter(demand_gross > quantile(demand_gross, 0.90))
+# Calculate RMSE for multiple models
 RMSE_base <- sqrt(mean(residuals(model)^2))
 RMSE_3day <- sqrt(mean(residuals(model1)^2))
 RMSE_11_18 <- sqrt(mean(residuals(model5)^2))
 RMSE_6pm <- sqrt(mean(residuals(model4)^2))
 
-print(c("RMSE (18 3-day avg Temp)" = RMSE_3day, "RMSE (11-18 Temp)" = RMSE_11_18, "RMSE (18 Temp)" = RMSE_6pm, "RMSE (Baseline)" = RMSE_base))
+# Print RMSE results
+print(c("RMSE (18 3-day avg Temp)" = RMSE_3day,
+        "RMSE (11-18 Temp)" = RMSE_11_18,
+        "RMSE (18 Temp)" = RMSE_6pm,
+        "RMSE (Baseline)" = RMSE_base))
 
+# Add predicted values from model6
+df <- df %>% mutate(predicted_demand = predict(model6, newdata = df))
 
-
-# Add predicted values to your dataframe
-df <- df %>% mutate(predicted_demand = predict(model6))
-
-# Identify the peak demand day (maximum demand_gross) for each Winter
+# Identify max demand day for each Winter
 peak_days <- df %>%
   group_by(Winter) %>%
   filter(demand_gross == max(demand_gross)) %>%
   ungroup()
 
-# Combined plot
+# Plot actual vs predicted demand
 ggplot() +
   geom_point(data = df, aes(x = demand_gross, y = predicted_demand),
              colour = "#c8398b", alpha = 0.5, size = 1) +
-  geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth  = 0.75) +
+  geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth = 0.75) +
   geom_point(data = peak_days, aes(x = demand_gross, y = predicted_demand),
              colour = "#00CFFF", alpha = 0.95, size = 2) +
-  labs(x = "Actual Demand (MW)",
-       y = "Predicted Demand (MW)") +
+  labs(x = "Actual Demand (MW)", y = "Predicted Demand (MW)") +
   theme_minimal() +
   theme(
     axis.title = element_text(size = 16),
     axis.text = element_text(size = 10)
   )
 
+# Save plot
 ggsave("actual_predicted.png", width = 8, height = 5, dpi = 350)
 
-
-# Compute diagnostics
+# Add diagnostics to dataframe
 df <- df %>%
   mutate(Fitted = predict(model6),
          Residuals = residuals(model6),
          Std_Residuals = rstandard(model6),
          Leverage = hatvalues(model6),
          CookD = cooks.distance(model6),
-         ID = row_number())  # Add a unique ID for labeling points
+         ID = row_number())
 
-# Function to get LOWESS smoothed values
+# Helper: Compute LOWESS smoothed lines
 lowess_fit <- function(x, y) {
-  smooth <- lowess(x, y, f = 0.7)  # Adjust smoothing parameter f if needed
+  smooth <- lowess(x, y, f = 0.7)
   data.frame(x = smooth$x, y = smooth$y)
 }
 
-# Compute LOWESS trend lines for each plot
+# LOWESS for diagnostic plots
 lowess_p1 <- lowess_fit(df$Fitted, df$Residuals)
 lowess_p3 <- lowess_fit(df$Fitted, sqrt(abs(df$Std_Residuals)))
 lowess_p4 <- lowess_fit(df$Leverage, df$Std_Residuals)
@@ -269,7 +262,7 @@ lowess_p4 <- lowess_fit(df$Leverage, df$Std_Residuals)
 # Residuals vs Fitted
 p1 <- ggplot(df, aes(x = Fitted, y = Residuals)) +
   geom_point(color = "#3f0630", alpha = 0.5) +
-  geom_line(data = lowess_p1, aes(x = x, y = y), color = "#c8398b", linewidth = 0.75) +  # Manually added LOWESS
+  geom_line(data = lowess_p1, aes(x = x, y = y), color = "#c8398b", linewidth = 0.75) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "#000000") +
   theme_minimal() +
   labs(title = "Residuals vs Fitted", x = "Fitted Values", y = "Residuals")
@@ -285,29 +278,24 @@ p2 <- ggplot(qq_data, aes(sample = sample)) +
 # Scale-Location Plot
 p3 <- ggplot(df, aes(x = Fitted, y = sqrt(abs(Std_Residuals)))) +
   geom_point(color = "#3f0630", alpha = 0.5) +
-  geom_line(data = lowess_p3, aes(x = x, y = y), color = "#c8398b", linewidth = 0.75) +  # Manually added LOWESS
+  geom_line(data = lowess_p3, aes(x = x, y = y), color = "#c8398b", linewidth = 0.75) +
   theme_minimal() +
   labs(title = "Scale-Location Plot", x = "Fitted Values", y = "√|Standardized Residuals|")
 
-# Residuals vs Leverage with Properly Mirrored Cook’s Distance Curves
+# Residuals vs Leverage
 p4 <- ggplot(df, aes(x = Leverage, y = Std_Residuals)) +
   geom_point(color = "#3f0630", alpha = 0.5) +
-  geom_line(data = lowess_p4, aes(x = x, y = y), color = "#c8398b", linewidth = 0.75) +  # Manually added LOWESS
+  geom_line(data = lowess_p4, aes(x = x, y = y), color = "#c8398b", linewidth = 0.75) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "#000000") +
   theme_minimal() +
-  coord_cartesian(xlim = c(0, max(df$Leverage) * 1.05)) +  
-  labs(title = "Residuals vs Leverage", 
-       x = "Leverage", y = "Standardized Residuals")
+  coord_cartesian(xlim = c(0, max(df$Leverage) * 1.05)) +
+  labs(title = "Residuals vs Leverage", x = "Leverage", y = "Standardized Residuals")
 
-# Arrange plots in a 2x2 grid
+# Arrange and save diagnostic plots
 ggarrange(p1, p2, p3, p4, ncol = 2, nrow = 2)
-
 ggsave("res_plots.png", width = 8, height = 5, dpi = 350)
 
-#par(mfrow = c(2, 2))
-#plot(model6)
-
-# Reshape to long format
+# Reshape demand data to long format
 df_long <- df %>%
   select(Date, demand_gross, predicted_demand) %>%
   pivot_longer(cols = c(demand_gross, predicted_demand),
@@ -316,13 +304,11 @@ df_long <- df %>%
                        demand_gross = "Actual",
                        predicted_demand = "Predicted"))
 
-# Plot with shared legend and no facet titles
+# Time series plot of actual vs predicted demand
 ggplot(df_long, aes(x = Date, y = Demand, colour = Type)) +
   geom_line(linewidth = 0.5) +
   facet_wrap(~Type, ncol = 1, scales = "fixed") +
-  labs(x = "Time",
-       y = "Demand (MW)",
-       colour = NULL) +  # Removes "Type" heading in legend
+  labs(x = "Time", y = "Demand (MW)", colour = NULL) +
   scale_colour_manual(values = c("Actual" = "#3f0630", "Predicted" = "#c8398b"),
                       guide = guide_legend(override.aes = list(linewidth = 1.5))) +
   theme_minimal() +
@@ -337,7 +323,7 @@ ggplot(df_long, aes(x = Date, y = Demand, colour = Type)) +
 
 ggsave("demand_time.png", width = 8, height = 5, dpi = 350)
 
-# Reshape data to long format
+# Reshape demand data for full distribution plot
 df_long <- df %>%
   select(demand_gross, predicted_demand) %>%
   pivot_longer(cols = everything(),
@@ -346,17 +332,13 @@ df_long <- df %>%
                        demand_gross = "Actual Demand    ",
                        predicted_demand = "Predicted Demand"))
 
-# Create the density plot
+# Density plot of full demand distribution
 ggplot(df_long, aes(x = Demand, colour = Type)) +
   geom_density(na.rm = TRUE, linewidth = 0.75) +
   scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
                       guide = guide_legend(override.aes = list(linewidth = 1))) +
-  labs(x = "Demand (MW)",
-       y = "Density",
-       colour = NULL) +
+  labs(x = "Demand (MW)", y = "Density", colour = NULL) +
   theme_minimal() +
-  theme(legend.position = "bottom",
-        legend.key = element_blank()) +
   theme(
     legend.position = "bottom",
     legend.text = element_text(size = 14),
@@ -368,25 +350,23 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
 
 ggsave("full_demand_pdf.png", width = 8, height = 5, dpi = 350)
 
-# Define quantiles for zooming
+# Define zoom range for top demand
 upper_bound <- max(df$demand_gross, na.rm = TRUE)
 lower_bound <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
 q99 <- quantile(df$demand_gross, 0.99, na.rm = TRUE)
 
-# Compute y-axis upper limit for scaling
+# Get max density values for scaling
 density_actual <- density(df$demand_gross, na.rm = TRUE)
 density_predicted <- density(df$predicted_demand, na.rm = TRUE)
 y_upper_limit <- 0.5 * max(max(density_actual$y, na.rm = TRUE),
                            max(density_predicted$y, na.rm = TRUE))
 
-# Plot with zoomed-in x-axis and customized y-axis scaling
+# Zoomed-in density plot of top 5% demand
 ggplot(df_long, aes(x = Demand, colour = Type)) +
   geom_density(na.rm = TRUE, linewidth = 0.75) +
   scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
                       guide = guide_legend(override.aes = list(linewidth = 1))) +
-  labs(x = "Demand (MW)",
-       y = "Density",
-       colour = NULL) +  # Remove "Type" heading from legend
+  labs(x = "Demand (MW)", y = "Density", colour = NULL) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
@@ -396,18 +376,15 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
     axis.title = element_text(size = 16),
     axis.text = element_text(size = 10)
   ) +
-  coord_cartesian(xlim = c(lower_bound, upper_bound), ylim = c(0, y_upper_limit)) +  # Zoom in
-  geom_vline(xintercept = q99, linetype = "dashed", colour = "#000000", linewidth = 0.75)  # 99th quantile line
+  coord_cartesian(xlim = c(lower_bound, upper_bound), ylim = c(0, y_upper_limit))
 
 ggsave("crop_demand_pdf.png", width = 8, height = 5, dpi = 350)
 
-# Define 95th quantile threshold
+# Filter top 5% of demand values
 q95 <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
-
-# Filter data to only include top 5% of demand values
 df_q95 <- df %>% filter(demand_gross >= q95)
 
-# Reshape to long format for ggplot
+# Reshape filtered data for plot
 df_q95_long <- df_q95 %>%
   select(demand_gross, predicted_demand) %>%
   pivot_longer(cols = everything(),
@@ -416,14 +393,12 @@ df_q95_long <- df_q95 %>%
                        demand_gross = "Actual Demand    ",
                        predicted_demand = "Predicted Demand"))
 
-# Create density plot
+# Density plot for top 5% of demand
 ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
   geom_density(na.rm = TRUE, linewidth = 0.75) +
   scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
                       guide = guide_legend(override.aes = list(linewidth = 1))) +
-  labs(x = "Demand (MW)",
-       y = "Density",
-       colour = NULL) +  # Removes "Type" from legend title
+  labs(x = "Demand (MW)", y = "Density", colour = NULL) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
@@ -432,16 +407,17 @@ ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
     strip.text = element_blank(),
     axis.title = element_text(size = 16),
     axis.text = element_text(size = 10)
-  ) +
-  geom_vline(xintercept = q99, linetype = "dashed", colour = "#000000", linewidth = 0.75)  # 99th quantile line
+  )
 
 ggsave("95_demand_pdf.png", width = 8, height = 5, dpi = 350)
 
-# Load necessary libraries
+
+## Quantile Regression
+# Load libraries
 library(quantreg)
 library(dplyr)
 
-# Define different models with varying predictors
+# Define model formulas
 models <- list(
   "Model 0" = demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2,
   "Model 1" = demand_gross ~ Winter + T_3avg:Winter + wdayindex + DSN + DSN2,
@@ -449,65 +425,50 @@ models <- list(
   "Model 3" = demand_gross ~ Winter + TE_11_18:Winter + wdayindex + DSN + DSN2,
   "Model 4" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + DSN + DSN2,
   "Model 5" = demand_gross ~ Winter + T_11_18:Winter + wdayindex + DSN + DSN2,
-  "Model 6" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight_hours + daylight_hours2,
-  "Model 7" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight_hours,
-  "Model 8" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight_hours2,
-  "Model 9" = demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight_hours + daylight_hours2,
-  "Model 10" = demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2,
-  "Model 11" = demand_gross ~ Winter + T_weighted:Winter + solar_S + wdayindex + daylight_hours + daylight_hours2,
-  "Model 12" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight_hours + daylight_hours2,
-  "Model 13" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:solar_S + wdayindex + daylight_hours + daylight_hours2,
-  "Model 14" = demand_gross ~ Winter + T_weighted:Winter + I(TO.x < 5) + wdayindex + daylight_hours + daylight_hours2,
-  "Model 15" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight_hours + daylight_hours2
+  "Model 6" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2,
+  "Model 7" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight,
+  "Model 8" = demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight2,
+  "Model 9" = demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight + daylight2,
+  "Model 10" = demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
+  "Model 11" = demand_gross ~ Winter + T_weighted:Winter + solar_S + wdayindex + daylight + daylight2,
+  "Model 12" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight + daylight2,
+  "Model 13" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:solar_S + wdayindex + daylight + daylight2,
+  "Model 14" = demand_gross ~ Winter + T_weighted:Winter + I(TO.x < 5) + wdayindex + daylight + daylight2,
+  "Model 15" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight + daylight2
 )
-# Best Model: 10
 
-# Fit quantile regression models at τ = 0.95
+# Fit quantile regression models at tau = 0.95
 fitted_models <- lapply(models, function(f) rq(f, tau = 0.95, data = df))
 
-# Compute Pinball Loss for a given quantile regression model
+# Pinball loss function
 pinball_loss <- function(model, data) {
-  response <- all.vars(model$terms)[1]  # Extract response variable
+  response <- all.vars(model$terms)[1]
   y <- data[[response]]
   y_pred <- predict(model, newdata = data)
   tau <- model$tau
-  
-  # Compute Pinball Loss (Check Loss function)
-  loss <- mean((y - y_pred) * (tau - (y < y_pred)))  # Use mean() instead of sum()/length(y)
-  
-  return(loss)
+  mean((y - y_pred) * (tau - (y < y_pred)))
 }
 
-# Compute Generalised Cross-Validation (GCV) for a quantile regression model
+# GCV for quantile regression
 gcv_qr <- function(model, data) {
-  response <- all.vars(model$terms)[1]  # Extract response variable
-  y <- data[[response]]
-  n <- length(y)  # Number of observations
-  p <- length(coef(model))  # Number of parameters
-  
-  loss <- pinball_loss(model, data)  # Use Pinball Loss
-  
-  # Compute GCV using the formula from Shin et al. (2022)
-  gcv <- loss / ((1 - p / n)^2)  # Use mean loss
-  
-  return(gcv)
+  y <- data[[all.vars(model$terms)[1]]]
+  n <- length(y)
+  p <- length(coef(model))
+  loss <- pinball_loss(model, data)
+  loss / ((1 - p / n)^2)
 }
 
-# Compute AIC and BIC for quantile regression
+# AIC and BIC for quantile regression
 aic_bic_qr <- function(model, data) {
   n <- length(model$residuals)
-  p <- length(coef(model))  # Number of parameters
-  
-  loss <- pinball_loss(model, data)  # Use mean Pinball Loss
-  
-  # Compute AIC_q and BIC_q (corrected)
+  p <- length(coef(model))
+  loss <- pinball_loss(model, data)
   AIC_q <- n * log(loss) + 2 * p
   BIC_q <- n * log(loss) + p * log(n)
-  
-  return(c(AIC_q = AIC_q, BIC_q = BIC_q))
+  c(AIC_q = AIC_q, BIC_q = BIC_q)
 }
 
-# Compute metrics for each model
+# Evaluate all models
 model_results <- data.frame(
   Model = names(fitted_models),
   Pinball = sapply(fitted_models, function(m) pinball_loss(m, df)),
@@ -516,31 +477,29 @@ model_results <- data.frame(
   BIC = sapply(fitted_models, function(m) aic_bic_qr(m, df)[2])
 )
 
-# Print results
+# Print summary table
 print(model_results)
 
+# Fit best model separately at tau = 0.95
+model_quant <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2, tau = 0.95, data = df)
 
-model_quant <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight_hours + daylight_hours2, tau = 0.95, data = df)
-
-
-# Add predicted values to your dataframe
+# Add predicted values to dataset
 df <- df %>% mutate(predicted_demand_quant = predict(model_quant))
 
-# Identify the peak demand day (maximum demand_gross) for each Winter
+# Find peak demand day in each winter
 peak_days <- df %>%
   group_by(Winter) %>%
   filter(demand_gross == max(demand_gross)) %>%
   ungroup()
 
-# Combined plot
+# Plot actual vs predicted (quantile model)
 ggplot() +
   geom_point(data = df, aes(x = demand_gross, y = predicted_demand_quant),
              colour = "#c8398b", alpha = 0.5, size = 1) +
-  geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth  = 0.75) +
+  geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth = 0.75) +
   geom_point(data = peak_days, aes(x = demand_gross, y = predicted_demand_quant),
              colour = "#00CFFF", alpha = 0.95, size = 2) +
-  labs(x = "Actual Demand (MW)",
-       y = "Predicted Demand (MW)") +
+  labs(x = "Actual Demand (MW)", y = "Predicted Demand (MW)") +
   theme_minimal() +
   theme(
     legend.position = "bottom",
@@ -553,14 +512,8 @@ ggplot() +
 
 ggsave("actual_predicted_quant.png", width = 8, height = 5, dpi = 350)
 
-# Define 95th quantile threshold
-q95 <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
-
-# Filter data to only include top 5% of demand values
-df_q95 <- df %>% filter(demand_gross >= q95)
-
-# Reshape to long format for ggplot
-df_q95_long <- df_q95 %>%
+# Reshape for density plot
+df_long <- df %>%
   select(demand_gross, predicted_demand_quant) %>%
   pivot_longer(cols = everything(),
                names_to = "Type", values_to = "Demand") %>%
@@ -568,14 +521,12 @@ df_q95_long <- df_q95 %>%
                        demand_gross = "Actual Demand    ",
                        predicted_demand_quant = "Predicted Demand"))
 
-# Create density plot
-ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
+# Density plot (full range)
+ggplot(df_long, aes(x = Demand, colour = Type)) +
   geom_density(na.rm = TRUE, linewidth = 0.75) +
   scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
                       guide = guide_legend(override.aes = list(linewidth = 1))) +
-  labs(x = "Demand (MW)",
-       y = "Density",
-       colour = NULL) +  # Removes "Type" from legend title
+  labs(x = "Demand (MW)", y = "Density", colour = NULL) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
@@ -584,8 +535,38 @@ ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
     strip.text = element_blank(),
     axis.title = element_text(size = 16),
     axis.text = element_text(size = 10)
-  ) +
-  geom_vline(xintercept = q99, linetype = "dashed", colour = "#000000", linewidth = 0.75)  # 99th quantile line
+  )
+
+ggsave("full_demand_pdf_quant.png", width = 8, height = 5, dpi = 350)
+
+# Filter top 5% of demand
+q95 <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
+df_q95 <- df %>% filter(demand_gross >= q95)
+
+# Reshape for density plot (top 5%)
+df_q95_long <- df_q95 %>%
+  select(demand_gross, predicted_demand_quant) %>%
+  pivot_longer(cols = everything(),
+               names_to = "Type", values_to = "Demand") %>%
+  mutate(Type = recode(Type,
+                       demand_gross = "Actual Demand    ",
+                       predicted_demand_quant = "Predicted Demand"))
+
+# Density plot (top 5%)
+ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
+  geom_density(na.rm = TRUE, linewidth = 0.75) +
+  scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
+                      guide = guide_legend(override.aes = list(linewidth = 1))) +
+  labs(x = "Demand (MW)", y = "Density", colour = NULL) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 16),
+    strip.text = element_blank(),
+    axis.title = element_text(size = 16),
+    axis.text = element_text(size = 10)
+  )
 
 ggsave("95_demand_pdf_quant.png", width = 8, height = 5, dpi = 350)
 
