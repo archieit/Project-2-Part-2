@@ -1,0 +1,309 @@
+library(suncalc)
+library(dplyr)
+library(lubridate)
+library(slider)
+library(tidyr)
+library(tibble)
+
+# Load the datasets
+df <- read.csv("/Users/EmmaThomson/Desktop/Year 4/Case-Study/SCS_Energy/SCS_demand_modelling.csv")
+df_temp <- read.csv("/Users/EmmaThomson/Desktop/Year 4/Case-Study/SCS_Energy/SCS_hourly_temp.csv")
+
+
+df <- df %>%
+  filter(!DSN %in% 54:62)
+
+# Convert wdayindex to factor and create dummy variables (excluding Saturday as reference)
+df$wdayindex <- as.factor(df$wdayindex)
+
+# Define Saturday as the reference level (6 in wdayindex corresponds to Saturday)
+df$wdayindex <- relevel(df$wdayindex, ref = "6")
+
+# Define location (Example: London)
+lat <- 51.5074
+long <- -0.1278
+
+# Ensure Date is in proper format
+df$Date <- as.Date(df$Date, format = "%Y-%m-%d")
+
+# Compute sunrise and sunset for each date
+sun_times <- getSunlightTimes(
+  date = df$Date, 
+  lat = lat, 
+  lon = long, 
+  keep = c("sunrise", "sunset"), # Keep only relevant times
+  tz = "UTC"
+)
+
+# Merge sunrise and sunset times into the dataset
+df <- cbind(df, sun_times[, c("sunrise", "sunset")])
+
+# Convert sunrise and sunset to POSIXct for calculations
+df$sunrise <- as.POSIXct(df$sunrise, tz = "UTC")
+df$sunset <- as.POSIXct(df$sunset, tz = "UTC")
+
+# Compute daylight hours
+df$daylight_hours <- as.numeric(difftime(df$sunset, df$sunrise, units = "hours"))
+
+# Create DSN² variable
+df$DSN2 <- df$DSN^2
+df$daylight_hours2 <- df$daylight_hours^2
+
+# Create winter indicator variables (excluding 1990/91 as reference)
+df$Winter <- as.factor(df$start_year)
+df$Winter <- relevel(df$Winter, ref = "1991")
+
+
+# Ensure Date is properly formatted
+df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
+
+# Extract Date and Hour separately
+df_temp <- df_temp %>%
+  mutate(Date_only = as.Date(Date), Hour = hour(Date))
+
+# Compute orginal TO variable
+df_TO <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(
+    TO = mean(temp[Hour %in% c(15, 16, 17, 18)], na.rm = TRUE)
+  )
+
+# Compute new TO variable
+df_temp_11_6pm <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(
+    Temp_11_6pm = mean(temp[Hour %in% c(12, 13, 14, 15, 16, 17, 18)], na.rm = TRUE)
+  )
+
+# Compute temperature at 6pm for each day
+df_temp_6pm <- df_temp %>%
+  filter(format(Date, "%H:%M") == "18:00") %>%
+  select(Date_only, Temp_6pm = temp)  # Rename for clarity
+
+# Compute minimum daily temperature
+df_temp_min <- df_temp %>%
+  group_by(Date_only) %>%
+  summarise(Temp_min = min(temp, na.rm = TRUE))  # Get daily min temp
+
+# Merge both temperature variables
+df_temp_daily <- df_temp_6pm %>%
+  left_join(df_temp_min, by = "Date_only")
+df_temp_daily <- df_temp_daily %>%
+  left_join(df_temp_11_6pm, by = "Date_only")
+df_temp_daily <- df_temp_daily %>%
+  left_join(df_TO, by = "Date_only")
+
+df_temp_daily <- df_temp_daily %>%
+  arrange(Date_only) %>%
+  
+  # Create lagged temperature variables
+  mutate(
+    Temp_3day_avg = slide_dbl(TO, mean, .before = 2, .complete = TRUE),  # 3-day avg
+    Temp_11_6_3day_avg = slide_dbl(Temp_11_6pm, mean, .before = 2, .complete = TRUE),  # 3-day avg
+    Temp_3day_avg_centred = slide_dbl(TO, mean, .before = 1, .after = 1, .complete = TRUE),  # Centred 3-day avg
+    Temp_6pm_3day_avg = slide_dbl(Temp_6pm, mean, .before = 2, .complete = TRUE),  # 6pm 3-day avg
+    Temp_min_3day_avg = slide_dbl(Temp_min, mean, .before = 2, .complete = TRUE),  # Min 3-day avg
+    Temp_7day_avg = slide_dbl(TO, mean, .before = 6, .complete = TRUE),  # 7-day avg
+    Temp_change = TO - lag(TO, 1),  # Change from previous day
+    Temp_weighted = 0.5 * Temp_11_6pm + 0.3 * lag(Temp_11_6pm, 1) + 0.2 * lag(Temp_11_6pm, 2)  # Weighted avg
+  ) %>%
+  
+  # Compute temperature anomaly (difference from same day in past years)
+  group_by(yday(Date_only)) %>%
+  mutate(
+    Temp_anomaly = TO - mean(TO, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+df_temp_daily<- df_temp_daily%>%
+  mutate(
+    TE_11_6 = Temp_11_6pm 
+  )
+
+# Create TE variants incorporating daily lags
+df_temp_daily<- df_temp_daily%>%
+  mutate(
+    TE_11_6 = (Temp_11_6pm + lag(TE_11_6, 1)) / 2)
+
+# Convert df's Date column to match format
+df <- df %>%
+  mutate(Date = as.Date(Date))
+
+# Merge with df
+df <- df %>%
+  left_join(df_temp_daily, by = c("Date" = "Date_only"))
+
+model <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2, data = df)
+
+acf(residuals(model), main = "Autocorrelation", lag.max = 50)
+
+#Bootstrapping
+set.seed(123)
+
+df_no_2013 <- df %>% filter(Winter != "2013")  # Exclude 2013
+
+# Fit the full model without 2013
+model_no_2013 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2, 
+                    data = df_no_2013)
+
+years <- 1991:2013
+
+no_weather_2013 <- df %>%
+  filter(Winter == 2013) %>%
+  select(Winter, wdayindex, DSN)
+
+weather_data <- lapply(years, function(year_given) {
+  yearly_weather <- df %>%
+    filter(Winter == year_given) %>%  
+    select(Temp_weighted, daylight_hours, daylight_hours2, DSN) 
+  
+  combined_data <- left_join(no_weather_2013, yearly_weather, by = "DSN") %>%
+    select(-DSN)
+  
+  
+  return(combined_data)
+})
+
+# Assign names
+names(weather_data) <- paste0("weather_", years)
+
+weather_data$weather_1991
+
+as.matrix(weather_data$weather_1991)
+model.matrix(model)
+
+model_mat <- model.matrix(~ ., weather_data$weather_1991)
+print(model_mat)
+
+
+model_matrices <- lapply(names(weather_data), function(year) {
+  df <- as.data.frame(weather_data[[year]])  # Ensure it's a data frame
+  model.matrix(~ Winter + Winter:Temp_weighted + wdayindex + daylight_hours + daylight_hours2, data = df)
+})
+names(model_matrices) <- names(weather_data)  # Assign year names
+
+model_matrices$weather_1991
+model.matrix(model)
+x <- as.data.frame(coef(model))
+
+
+as.matrix(coef(model_no_2013))
+
+# Extract coefficients as matrices
+coef_model <- as.matrix(coef(model))
+coef_model_no_2013 <- as.matrix(coef(model_no_2013))
+
+# Identify the specific coefficients to add
+winter_2013_coef <- coef_model["Winter2013", , drop = FALSE]
+winter_2013_temp_weighted_coef <- coef_model["Winter2013:Temp_weighted", , drop = FALSE]
+
+# Get row names to find positions
+coef_names <- rownames(coef_model_no_2013)
+
+# Find the correct insertion positions
+winter_rows <- grep("^Winter\\d+$", coef_names)  # All WinterXXXX coefficients
+winter_temp_rows <- grep("^Winter\\d+:Temp_weighted$", coef_names)  # All WinterXXXX:Temp_weighted coefficients
+
+# Determine insertion index for Winter2013
+insert_index_winter <- if (length(winter_rows) > 0) max(winter_rows) + 1 else length(coef_names) + 1
+
+# Insert Winter2013 in the right position
+coef_model_no_2013 <- rbind(
+  coef_model_no_2013[1:(insert_index_winter - 1), , drop = FALSE], 
+  winter_2013_coef, 
+  coef_model_no_2013[insert_index_winter:nrow(coef_model_no_2013), , drop = FALSE]
+)
+
+
+coef_model_no_2013 <- rbind(coef_model_no_2013, winter_2013_temp_weighted_coef)
+
+# Print the updated coefficient matrix
+print(coef_model_no_2013)
+
+
+B <- 1000
+
+# Function for bootstrapping residuals
+fit_model_no_2013 <- function(data, indices) {   
+  sampled_data <- data[indices, ]  # Resample with replacement
+  model <- lm(demand_gross ~ Winter + Winter:Temp_weighted + wdayindex + daylight_hours + daylight_hours2, data = sampled_data)  
+  return(coef(model))  # Return bootstrapped coefficients
+}
+
+# Bootstrapping
+library(boot)
+boot_results <- boot(data = df_no_2013, statistic = fit_model_no_2013, R = B)
+
+# Convert bootstrapped coefficient samples to matrix
+boot_coefs <- boot_results$t  # B x num_coefficients matrix
+
+# Extract full model coefficients
+coef_model <- as.matrix(coef(model))  
+coef_model_no_2013 <- as.matrix(coef(model_no_2013))  
+
+# Identify Winter2013 coefficients
+winter_2013_coef <- coef_model["Winter2013", , drop = FALSE]  
+winter_2013_temp_weighted_coef <- coef_model["Winter2013:Temp_weighted", , drop = FALSE]  
+
+# Get row names of bootstrapped coefficient matrix
+coef_names <- rownames(coef_model_no_2013)  
+
+# Find correct insertion positions
+winter_rows <- grep("^Winter\\d+$", coef_names)  
+winter_temp_rows <- grep("^Winter\\d+:Temp_weighted$", coef_names)  
+
+# Determine insertion index for Winter2013
+insert_index_winter <- if (length(winter_rows) > 0) max(winter_rows) + 1 else length(coef_names) + 1  
+
+# Insert Winter2013 for **each bootstrap sample**
+boot_coefs_corrected <- apply(boot_coefs, 1, function(coef_sample) {
+  coef_matrix <- as.matrix(coef_sample)  # Convert row to column matrix
+  
+  # Insert Winter2013 coefficient in the correct position
+  coef_matrix <- rbind(
+    coef_matrix[1:(insert_index_winter - 1), , drop = FALSE],  
+    winter_2013_coef,  
+    coef_matrix[insert_index_winter:nrow(coef_matrix), , drop = FALSE]  
+  )  
+  
+  # Append Winter2013:Temp_weighted at the end
+  coef_matrix <- rbind(coef_matrix, winter_2013_temp_weighted_coef)  
+  
+  return(coef_matrix)
+})
+
+# Reshape into a matrix with B rows and correct number of columns
+boot_coefs_corrected <- t(simplify2array(boot_coefs_corrected))
+
+# Store max values per year
+max_values_per_year <- lapply(names(model_matrices), function(year) {
+  model_mat <- model_matrices[[year]]  # Get model matrix for the year
+  
+  # Compute predicted values for each bootstrap sample
+  y_pred <- model_mat %*% t(boot_coefs_corrected)  # Matrix multiplication
+  
+  # Get max value per bootstrap sample
+  apply(y_pred, 2, max)  
+})
+
+# Convert to data frame for plotting
+year_labels <- as.numeric(sub("weather_", "", names(model_matrices)))  # Convert to numeric years
+
+# Convert list to data frame while preserving correct years
+max_values_df <- bind_rows(lapply(seq_along(max_values_per_year), function(i) {
+  data.frame(Year = year_labels[i], Max_Predicted = max_values_per_year[[i]])
+}))
+
+# Ensure Year is treated as a factor (for proper ordering in ggplot)
+max_values_df$Year <- factor(max_values_df$Year, levels = 1991:2013, ordered = TRUE)
+colnames(max_values_df) <- c("Year", "Max_Predicted")  
+max_values_df$Year <- as.factor(max_values_df$Year)  
+
+# Boxplot
+ggplot(max_values_df, aes(x = Year, y = Max_Predicted)) +
+  geom_boxplot(fill = "skyblue", alpha = 0.7, outlier.colour = "red") + 
+  labs(title = "Bootstrapped Maximum Predicted Values per Year",
+       x = "Year",
+       y = "Max Predicted Value") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))  
