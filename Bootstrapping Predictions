@@ -137,12 +137,17 @@ model <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_
 
 acf(residuals(model), main = "Autocorrelation", lag.max = 50)
 
-#Bootstrapping
+
+library(boot)
+library(dplyr)
+library(ggplot2)
+
 set.seed(123)
 
-df_no_2013 <- df %>% filter(Winter != "2013")  # Exclude 2013
+# Exclude Winter 2013
+df_no_2013 <- df %>% filter(Winter != "2013")
 
-# Fit the full model without 2013
+# Fit model without 2013
 model_no_2013 <- lm(demand_gross ~ Winter + Temp_weighted:Winter + wdayindex + daylight_hours + daylight_hours2, 
                     data = df_no_2013)
 
@@ -167,14 +172,9 @@ weather_data <- lapply(years, function(year_given) {
 # Assign names
 names(weather_data) <- paste0("weather_", years)
 
-weather_data$weather_1991
-
-as.matrix(weather_data$weather_1991)
-model.matrix(model)
-
-model_mat <- model.matrix(~ ., weather_data$weather_1991)
-print(model_mat)
-
+# Compute residuals
+residuals_no_2013 <- residuals(model_no_2013)
+n <- length(residuals_no_2013)
 
 model_matrices <- lapply(names(weather_data), function(year) {
   df <- as.data.frame(weather_data[[year]])  # Ensure it's a data frame
@@ -182,92 +182,70 @@ model_matrices <- lapply(names(weather_data), function(year) {
 })
 names(model_matrices) <- names(weather_data)  # Assign year names
 
-model_matrices$weather_1991
-model.matrix(model)
-x <- as.data.frame(coef(model))
+# Define block size
+block_size <- 5
+num_blocks <- floor(n / block_size)
 
+# Create overlapping residual blocks
+residual_blocks <- embed(residuals_no_2013, block_size)
 
-as.matrix(coef(model_no_2013))
-
-# Extract coefficients as matrices
-coef_model <- as.matrix(coef(model))
-coef_model_no_2013 <- as.matrix(coef(model_no_2013))
-
-# Identify the specific coefficients to add
-winter_2013_coef <- coef_model["Winter2013", , drop = FALSE]
-winter_2013_temp_weighted_coef <- coef_model["Winter2013:Temp_weighted", , drop = FALSE]
-
-# Get row names to find positions
-coef_names <- rownames(coef_model_no_2013)
-
-# Find the correct insertion positions
-winter_rows <- grep("^Winter\\d+$", coef_names)  # All WinterXXXX coefficients
-winter_temp_rows <- grep("^Winter\\d+:Temp_weighted$", coef_names)  # All WinterXXXX:Temp_weighted coefficients
-
-# Determine insertion index for Winter2013
-insert_index_winter <- if (length(winter_rows) > 0) max(winter_rows) + 1 else length(coef_names) + 1
-
-# Insert Winter2013 in the right position
-coef_model_no_2013 <- rbind(
-  coef_model_no_2013[1:(insert_index_winter - 1), , drop = FALSE], 
-  winter_2013_coef, 
-  coef_model_no_2013[insert_index_winter:nrow(coef_model_no_2013), , drop = FALSE]
-)
-
-
-coef_model_no_2013 <- rbind(coef_model_no_2013, winter_2013_temp_weighted_coef)
-
-# Print the updated coefficient matrix
-print(coef_model_no_2013)
-
-
-B <- 1000
-
-# Function for bootstrapping residuals
-fit_model_no_2013 <- function(data, indices) {   
-  sampled_data <- data[indices, ]  # Resample with replacement
-  model <- lm(demand_gross ~ Winter + Winter:Temp_weighted + wdayindex + daylight_hours + daylight_hours2, data = sampled_data)  
+# Bootstrapping function using residual block resampling
+fit_model_block_bootstrap <- function(data, indices) {
+  
+  # Select block indices with replacement
+  sampled_blocks <- sample(1:num_blocks, size = num_blocks, replace = TRUE)
+  
+  # Construct new residuals by stacking selected blocks
+  boot_residuals <- as.vector(residual_blocks[sampled_blocks, ])
+  
+  # Ensure correct length
+  boot_residuals <- boot_residuals[1:n]
+  
+  # Create new response variable using bootstrapped residuals
+  data$demand_gross <- fitted(model_no_2013) + boot_residuals
+  
+  # Fit model
+  model <- lm(demand_gross ~ Winter + Winter:Temp_weighted + wdayindex + daylight_hours + daylight_hours2, 
+              data = data)
+  
   return(coef(model))  # Return bootstrapped coefficients
 }
 
-# Bootstrapping
-library(boot)
-boot_results <- boot(data = df_no_2013, statistic = fit_model_no_2013, R = B)
+# Perform bootstrapping
+B <- 1000
+boot_results <- boot(data = df_no_2013, statistic = fit_model_block_bootstrap, R = B)
 
-# Convert bootstrapped coefficient samples to matrix
+# Convert bootstrapped coefficients to matrix
 boot_coefs <- boot_results$t  # B x num_coefficients matrix
 
 # Extract full model coefficients
-coef_model <- as.matrix(coef(model))  
-coef_model_no_2013 <- as.matrix(coef(model_no_2013))  
+coef_model <- as.matrix(coef(model))
+coef_model_no_2013 <- as.matrix(coef(model_no_2013))
 
 # Identify Winter2013 coefficients
-winter_2013_coef <- coef_model["Winter2013", , drop = FALSE]  
-winter_2013_temp_weighted_coef <- coef_model["Winter2013:Temp_weighted", , drop = FALSE]  
+winter_2013_coef <- coef_model["Winter2013", , drop = FALSE]
+winter_2013_temp_weighted_coef <- coef_model["Winter2013:Temp_weighted", , drop = FALSE]
 
 # Get row names of bootstrapped coefficient matrix
-coef_names <- rownames(coef_model_no_2013)  
+coef_names <- rownames(coef_model_no_2013)
 
 # Find correct insertion positions
-winter_rows <- grep("^Winter\\d+$", coef_names)  
-winter_temp_rows <- grep("^Winter\\d+:Temp_weighted$", coef_names)  
-
-# Determine insertion index for Winter2013
-insert_index_winter <- if (length(winter_rows) > 0) max(winter_rows) + 1 else length(coef_names) + 1  
+winter_rows <- grep("^Winter\\d+$", coef_names)
+insert_index_winter <- if (length(winter_rows) > 0) max(winter_rows) + 1 else length(coef_names) + 1
 
 # Insert Winter2013 for **each bootstrap sample**
 boot_coefs_corrected <- apply(boot_coefs, 1, function(coef_sample) {
-  coef_matrix <- as.matrix(coef_sample)  # Convert row to column matrix
+  coef_matrix <- as.matrix(coef_sample)
   
   # Insert Winter2013 coefficient in the correct position
   coef_matrix <- rbind(
-    coef_matrix[1:(insert_index_winter - 1), , drop = FALSE],  
-    winter_2013_coef,  
-    coef_matrix[insert_index_winter:nrow(coef_matrix), , drop = FALSE]  
-  )  
+    coef_matrix[1:(insert_index_winter - 1), , drop = FALSE],
+    winter_2013_coef,
+    coef_matrix[insert_index_winter:nrow(coef_matrix), , drop = FALSE]
+  )
   
   # Append Winter2013:Temp_weighted at the end
-  coef_matrix <- rbind(coef_matrix, winter_2013_temp_weighted_coef)  
+  coef_matrix <- rbind(coef_matrix, winter_2013_temp_weighted_coef)
   
   return(coef_matrix)
 })
@@ -277,33 +255,30 @@ boot_coefs_corrected <- t(simplify2array(boot_coefs_corrected))
 
 # Store max values per year
 max_values_per_year <- lapply(names(model_matrices), function(year) {
-  model_mat <- model_matrices[[year]]  # Get model matrix for the year
+  model_mat <- model_matrices[[year]]
   
   # Compute predicted values for each bootstrap sample
-  y_pred <- model_mat %*% t(boot_coefs_corrected)  # Matrix multiplication
+  y_pred <- model_mat %*% t(boot_coefs_corrected)
   
   # Get max value per bootstrap sample
-  apply(y_pred, 2, max)  
+  apply(y_pred, 2, max)
 })
 
-# Convert to data frame for plotting
-year_labels <- as.numeric(sub("weather_", "", names(model_matrices)))  # Convert to numeric years
-
 # Convert list to data frame while preserving correct years
+year_labels <- as.numeric(sub("weather_", "", names(model_matrices)))
 max_values_df <- bind_rows(lapply(seq_along(max_values_per_year), function(i) {
   data.frame(Year = year_labels[i], Max_Predicted = max_values_per_year[[i]])
 }))
 
 # Ensure Year is treated as a factor (for proper ordering in ggplot)
 max_values_df$Year <- factor(max_values_df$Year, levels = 1991:2013, ordered = TRUE)
-colnames(max_values_df) <- c("Year", "Max_Predicted")  
-max_values_df$Year <- as.factor(max_values_df$Year)  
 
 # Boxplot
 ggplot(max_values_df, aes(x = Year, y = Max_Predicted)) +
-  geom_boxplot(fill = "skyblue", alpha = 0.7, outlier.colour = "red") + 
+  geom_boxplot(fill = "skyblue", alpha = 0.7, outlier.colour = "red") +
   labs(title = "Bootstrapped Maximum Predicted Values per Year",
        x = "Year",
        y = "Max Predicted Value") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1))  
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
