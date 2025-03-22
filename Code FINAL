@@ -571,7 +571,6 @@ ggsave("95_demand_pdf_quant.png", width = 8, height = 5, dpi = 350)
 # Fit full model
 model_full <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = df)
 
-
 # Compute and plot ACF of residuals
 acf_data <- acf(residuals(model_full), plot = FALSE, lag.max = 50)
 acf_df <- with(acf_data, data.frame(Lag = lag, ACF = acf))
