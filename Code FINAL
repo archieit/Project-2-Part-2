@@ -56,13 +56,13 @@ ggplot(df, aes(x = DSN, y = demand_gross)) +
        y = "Gross Demand") +
   theme_minimal() +
   theme(
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
 # Save plot
 ggsave("demand_dsn.png", width = 8, height = 5, dpi = 350)
-ggsave("dsn.png", width = 8, height = 5, dpi = 350)
 
 # Format Date column in temperature data
 df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
@@ -156,9 +156,13 @@ ggplot(df, aes(x = DSN, y = demand_gross)) +
   labs(x = "DSN", y = "Gross Demand") +
   theme_minimal() +
   theme(
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
+
+# Save plot
+ggsave("dsn.png", width = 8, height = 5, dpi = 350)
 
 # Fit multiple regression models with different temperature variables
 model0 <- lm(demand_gross ~ Winter + TE:Winter + wdayindex + DSN + DSN2, data = df)
@@ -221,14 +225,15 @@ peak_days <- df %>%
 # Plot actual vs predicted demand
 ggplot() +
   geom_point(data = df, aes(x = demand_gross, y = predicted_demand),
-             colour = "#c8398b", alpha = 0.5, size = 1) +
+             colour = "#c8398b", alpha = 0.5) +
   geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth = 0.75) +
   geom_point(data = peak_days, aes(x = demand_gross, y = predicted_demand),
-             colour = "#00CFFF", alpha = 0.95, size = 2) +
+             colour = "#00CFFF", alpha = 0.95, size = 2.5) +
   labs(x = "Actual Demand (MW)", y = "Predicted Demand (MW)") +
   theme_minimal() +
   theme(
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -313,7 +318,8 @@ ggplot(df_long, aes(x = Date, y = Demand, colour = Type)) +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -340,7 +346,8 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -369,7 +376,8 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   ) +
   coord_cartesian(xlim = c(lower_bound, upper_bound), ylim = c(0, y_upper_limit))
@@ -401,7 +409,8 @@ ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -432,6 +441,7 @@ models <- list(
   "Model 14" = demand_gross ~ Winter + T_weighted:Winter + I(TO.x < 5) + wdayindex + daylight + daylight2,
   "Model 15" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight + daylight2
 )
+# Best model: Model 10
 
 # Fit quantile regression models at tau = 0.95
 fitted_models <- lapply(models, function(f) rq(f, tau = 0.95, data = df))
@@ -491,10 +501,10 @@ peak_days <- df %>%
 # Plot actual vs predicted (quantile model)
 ggplot() +
   geom_point(data = df, aes(x = demand_gross, y = predicted_demand_quant),
-             colour = "#c8398b", alpha = 0.5, size = 1) +
+             colour = "#c8398b", alpha = 0.5) +
   geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth = 0.75) +
   geom_point(data = peak_days, aes(x = demand_gross, y = predicted_demand_quant),
-             colour = "#00CFFF", alpha = 0.95, size = 2) +
+             colour = "#00CFFF", alpha = 0.95, size = 2.5) +
   labs(x = "Actual Demand (MW)", y = "Predicted Demand (MW)") +
   theme_minimal() +
   theme(
@@ -502,7 +512,8 @@ ggplot() +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -529,7 +540,8 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -560,7 +572,8 @@ ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
     legend.text = element_text(size = 14),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title = element_text(size = 16),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
     axis.text = element_text(size = 10)
   )
 
@@ -582,7 +595,10 @@ ggplot(acf_df, aes(x = Lag, y = ACF)) +
              linetype = "dashed", colour = "#c8398b", linewidth = 0.75) +
   labs(x = "Lag", y = "ACF") +
   theme_minimal() +
-  theme(axis.title = element_text(size = 14), axis.text = element_text(size = 10))
+  theme(axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
+    axis.text = element_text(size = 10)
+  )
 
 ggsave("acf.png", width = 8, height = 5, dpi = 350)
 
@@ -664,18 +680,22 @@ summary_df <- max_df %>%
 # Plot results
 peak_2013 <- max(df %>% filter(Winter == "2013") %>% pull(demand_gross), na.rm = TRUE)
 ggplot(summary_df, aes(x = Year, y = Mean)) +
-  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630") +
-  geom_point(colour = "#c8398b", size = 3) +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630", linewidth = 0.75) +
+  geom_point(colour = "#c8398b", size = 3.5) +
   geom_hline(yintercept = peak_2013, colour = "#000000", linetype = "dashed", linewidth = 0.75) +
   labs(x = "Year", y = "Max Predicted Demand (MW)") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+        axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
+        axis.text = element_text(size = 10)
+  )
 
 ggsave("scenario_analysis.png", width = 8, height = 5, dpi = 350)
 
 # Repeat for quantile regression (τ = 0.95)
 block_size <- 5
-B <- 100
+B <- 1000
 set.seed(123)
 df_no_2013 <- df %>% filter(Winter != "2013")
 
@@ -741,11 +761,15 @@ summary_df_qr <- max_df_qr %>%
 
 # Plot quantile scenario results
 ggplot(summary_df_qr, aes(x = Year, y = Mean)) +
-  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630") +
-  geom_point(colour = "#c8398b", size = 3) +
+  geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630", linewidth = 0.75) +
+  geom_point(colour = "#c8398b", size = 3.5) +
   geom_hline(yintercept = peak_2013, colour = "#000000", linetype = "dashed", linewidth = 0.75) +
   labs(x = "Year", y = "Max Predicted Demand (MW)") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+        axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
+        axis.text = element_text(size = 10)
+  )
 
 ggsave("scenario_analysis_quant.png", width = 8, height = 5, dpi = 350)
