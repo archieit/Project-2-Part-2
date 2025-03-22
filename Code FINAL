@@ -576,10 +576,10 @@ acf_data <- acf(residuals(model_full), plot = FALSE, lag.max = 50)
 acf_df <- with(acf_data, data.frame(Lag = lag, ACF = acf))
 
 ggplot(acf_df, aes(x = Lag, y = ACF)) +
-  geom_hline(yintercept = 0, colour = "#000000") +
-  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630") +
+  geom_hline(yintercept = 0, colour = "#000000", linewidth = 0.75) +
+  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 0.75) +
   geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
-             linetype = "dashed", colour = "#c8398b") +
+             linetype = "dashed", colour = "#c8398b", linewidth = 0.75) +
   labs(x = "Lag", y = "ACF") +
   theme_minimal() +
   theme(axis.title = element_text(size = 14), axis.text = element_text(size = 10))
