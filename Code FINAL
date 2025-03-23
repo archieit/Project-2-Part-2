@@ -196,6 +196,7 @@ models <- list(
 # View model performance metrics
 model_results <- data.frame(
   AIC = sapply(models, AIC),
+  BIC = sapply(models, BIC),
   Adjusted_R2 = sapply(models, function(m) summary(m)$adj.r.squared)
 )
 print(model_results)
