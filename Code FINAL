@@ -6,6 +6,7 @@ library(slider)
 library(ggplot2)
 library(ggpubr)
 library(tidyr)
+library(zoo)
 
 # Load datasets
 df <- read.csv("SCS_demand_modelling.csv")
@@ -52,7 +53,7 @@ df$Winter <- relevel(df$Winter, ref = "1991")
 # Plot demand against DSN
 ggplot(df, aes(x = DSN, y = demand_gross)) +
   geom_point(colour = "#3f0630", alpha = 0.75) +
-  labs(x = "DSN",
+  labs(x = "Days Since 1st November",
        y = "Gross Demand") +
   theme_minimal() +
   theme(
@@ -61,8 +62,81 @@ ggplot(df, aes(x = DSN, y = demand_gross)) +
     axis.text = element_text(size = 10)
   )
 
-# Save plot
 ggsave("demand_dsn.png", width = 8, height = 5, dpi = 350)
+
+# Plot maximum demand by winter
+peak_demand_per_year <- df %>%
+  group_by(start_year) %>%
+  summarise(Max_Demand = max(demand_gross, na.rm = TRUE)) %>%
+  ungroup()
+
+ggplot(peak_demand_per_year, aes(x = start_year, y = Max_Demand)) +
+  geom_line(colour = "#3f0630", linewidth = 0.75) +
+  geom_point(size = 2.5, colour = "#c8398b") +
+  labs(x = "Winter", y = "Maximum Demand (MW)") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
+    axis.text = element_text(size = 10)
+  )
+
+ggsave("demand_winter.png", width = 8, height = 5, dpi = 350)
+
+# Calculate 10-day rolling average temperature
+df <- df %>%
+  arrange(start_year, DSN) %>%
+  group_by(start_year) %>%
+  mutate(
+    T_rolling10 = zoo::rollmean(temp, k = 7, fill = NA, align = "center"),
+    Year_Label = ifelse(start_year == 2013, "2013    ", "Other Years")
+  ) %>%
+  ungroup()
+
+# Plot 10-day average temperature for each winter
+ggplot(df, aes(x = DSN, y = T_rolling10, group = start_year,
+               colour = Year_Label, linewidth = Year_Label, alpha = Year_Label)) +
+  geom_line() +
+  scale_colour_manual(values = c("2013    " = "#c8398b", "Other Years" = "#C4C4C4"),
+                      guide = guide_legend(override.aes = list(linewidth = 1))) +
+  scale_alpha_manual(values = c("2013    " = 1, "Other Years" = 0.75)) +
+  scale_linewidth_manual(values = c("2013    " = 1, "Other Years" = 0.5)) +
+  labs(x = "Days Since 1st November", y = "10-Day Average Temperature (°C)",
+       colour = NULL, linewidth = NULL, alpha = NULL) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 14),
+    legend.title = element_text(size = 16),
+    strip.text = element_blank(),
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
+    axis.text = element_text(size = 10)
+  )
+
+ggsave("10_day_temp.png", width = 8, height = 5, dpi = 350)
+
+# Get coldest 10% of days per winter
+df_cold_yearly <- df %>%
+  group_by(start_year) %>%
+  mutate(temp_10th = quantile(temp, 0.10, na.rm = TRUE)) %>%
+  filter(temp <= temp_10th) %>%
+  ungroup() %>%
+  mutate(start_year = as.factor(start_year))
+
+# Plot distribution of coldest days per winter
+ggplot(df_cold_yearly, aes(x = start_year, y = temp)) +
+  geom_violin(fill = "#3f0630", colour = "#3f0630", alpha = 0.75) +
+  labs(x = "Winter", y = "Temperature (°C)") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)),
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 10)
+  )
+
+ggsave("coldest_temp.png", width = 8, height = 5, dpi = 350)
 
 # Format Date column in temperature data
 df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
@@ -153,7 +227,7 @@ df <- df %>%
 ggplot(df, aes(x = DSN, y = demand_gross)) +
   geom_point(colour = "#3f0630", alpha = 0.75) +
   geom_smooth(colour = "#c8398b", method = "loess", se = FALSE, linewidth = 1.2) +
-  labs(x = "DSN", y = "Gross Demand") +
+  labs(x = "DSN", y = "Gross Demand (MW)") +
   theme_minimal() +
   theme(
     axis.title.x = element_text(size = 16, margin = margin(t = 10)),
@@ -161,7 +235,6 @@ ggplot(df, aes(x = DSN, y = demand_gross)) +
     axis.text = element_text(size = 10)
   )
 
-# Save plot
 ggsave("dsn.png", width = 8, height = 5, dpi = 350)
 
 # Fit multiple regression models with different temperature variables
@@ -196,7 +269,6 @@ models <- list(
 # View model performance metrics
 model_results <- data.frame(
   AIC = sapply(models, AIC),
-  BIC = sapply(models, BIC),
   Adjusted_R2 = sapply(models, function(m) summary(m)$adj.r.squared)
 )
 print(model_results)
@@ -226,10 +298,10 @@ peak_days <- df %>%
 # Plot actual vs predicted demand
 ggplot() +
   geom_point(data = df, aes(x = demand_gross, y = predicted_demand),
-             colour = "#c8398b", alpha = 0.5) +
+             colour = "#C4C4C4", alpha = 0.5) +
   geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth = 0.75) +
   geom_point(data = peak_days, aes(x = demand_gross, y = predicted_demand),
-             colour = "#00CFFF", alpha = 0.95, size = 2.5) +
+             colour = "#c8398b", alpha = 0.95, size = 2.5) +
   labs(x = "Actual Demand (MW)", y = "Predicted Demand (MW)") +
   theme_minimal() +
   theme(
@@ -238,7 +310,6 @@ ggplot() +
     axis.text = element_text(size = 10)
   )
 
-# Save plot
 ggsave("actual_predicted.png", width = 8, height = 5, dpi = 350)
 
 # Add diagnostics to dataframe
@@ -502,10 +573,10 @@ peak_days <- df %>%
 # Plot actual vs predicted (quantile model)
 ggplot() +
   geom_point(data = df, aes(x = demand_gross, y = predicted_demand_quant),
-             colour = "#c8398b", alpha = 0.5) +
+             colour = "#C4C4C4", alpha = 0.5) +
   geom_abline(intercept = 0, slope = 1, colour = "#000000", linewidth = 0.75) +
   geom_point(data = peak_days, aes(x = demand_gross, y = predicted_demand_quant),
-             colour = "#00CFFF", alpha = 0.95, size = 2.5) +
+             colour = "#c8398b", alpha = 0.95, size = 2.5) +
   labs(x = "Actual Demand (MW)", y = "Predicted Demand (MW)") +
   theme_minimal() +
   theme(
@@ -594,7 +665,7 @@ ggplot(acf_df, aes(x = Lag, y = ACF)) +
   geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 0.75) +
   geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
              linetype = "dashed", colour = "#c8398b", linewidth = 0.75) +
-  labs(x = "Lag", y = "ACF") +
+  labs(x = "Lag (Days)", y = "Autocorrelation Function") +
   theme_minimal() +
   theme(axis.title.x = element_text(size = 16, margin = margin(t = 10)),
     axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
@@ -684,7 +755,7 @@ ggplot(summary_df, aes(x = Year, y = Mean)) +
   geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630", linewidth = 0.75) +
   geom_point(colour = "#c8398b", size = 3.5) +
   geom_hline(yintercept = peak_2013, colour = "#000000", linetype = "dashed", linewidth = 0.75) +
-  labs(x = "Year", y = "Max Predicted Demand (MW)") +
+  labs(x = "Winter", y = "Max Predicted Demand (MW)") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
         axis.title.x = element_text(size = 16, margin = margin(t = 10)),
@@ -692,13 +763,35 @@ ggplot(summary_df, aes(x = Year, y = Mean)) +
         axis.text = element_text(size = 10)
   )
 
-ggsave("scenario_analysis.png", width = 8, height = 5, dpi = 350)
+xggsave("scenario_analysis.png", width = 8, height = 5, dpi = 350)
 
 # Repeat for quantile regression (τ = 0.95)
 block_size <- 5
 B <- 1000
 set.seed(123)
 df_no_2013 <- df %>% filter(Winter != "2013")
+
+# Fit full model
+model_quant_full <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
+                       tau = 0.95, data = df)
+
+# Compute and plot ACF of residuals
+acf_data_quant <- acf(residuals(model_quant_full), plot = FALSE, lag.max = 50)
+acf_df_quant <- with(acf_data_quant, data.frame(Lag = lag, ACF = acf))
+
+ggplot(acf_df_quant, aes(x = Lag, y = ACF)) +
+  geom_hline(yintercept = 0, colour = "#000000", linewidth = 0.75) +
+  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 0.75) +
+  geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
+             linetype = "dashed", colour = "#c8398b", linewidth = 0.75) +
+  labs(x = "Lag (Days)", y = "Autocorrelation Function") +
+  theme_minimal() +
+  theme(axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+        axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
+        axis.text = element_text(size = 10)
+  )
+
+ggsave("acf_quant.png", width = 8, height = 5, dpi = 350)
 
 # Bootstrap loop (quantile regression)
 boot_coefs_qr <- replicate(B, {
@@ -711,8 +804,6 @@ boot_coefs_qr <- replicate(B, {
 boot_coefs_mat_qr <- do.call(rbind, boot_coefs_qr)
 
 # Reinsert Winter2013 coefficients
-model_quant_full <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
-                       tau = 0.95, data = df)
 model_quant_no_2013 <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
                           tau = 0.95, data = df_no_2013)
 
@@ -765,7 +856,7 @@ ggplot(summary_df_qr, aes(x = Year, y = Mean)) +
   geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630", linewidth = 0.75) +
   geom_point(colour = "#c8398b", size = 3.5) +
   geom_hline(yintercept = peak_2013, colour = "#000000", linetype = "dashed", linewidth = 0.75) +
-  labs(x = "Year", y = "Max Predicted Demand (MW)") +
+  labs(x = "Winter", y = "Max Predicted Demand (MW)") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
         axis.title.x = element_text(size = 16, margin = margin(t = 10)),
