@@ -727,10 +727,10 @@ boot_coefs_full_qr <- t(apply(boot_coefs_mat_qr, 1, function(row) {
 }))
 
 # Rebuild synthetic 2013 data (quantile model)
-scenario_base <- df %>% filter(Winter == "2013") %>% select(Winter, wdayindex, DSN, wind, solar_S)
+scenario_base <- df %>% filter(Winter == "2013") %>% select(Winter, wdayindex, DSN)
 
 weather_data_qr <- lapply(years, function(y) {
-  weather_y <- df %>% filter(Winter == y) %>% select(T_weighted, daylight, daylight2, DSN)
+  weather_y <- df %>% filter(Winter == y) %>% select(wind, solar_S, T_weighted, daylight, daylight2, DSN)
   left_join(scenario_base, weather_y, by = "DSN") %>% select(-DSN)
 })
 names(weather_data_qr) <- paste0("weather_", years)
