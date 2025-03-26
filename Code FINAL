@@ -122,19 +122,26 @@ df_cold_yearly <- df %>%
   mutate(temp_10th = quantile(temp, 0.10, na.rm = TRUE)) %>%
   filter(temp <= temp_10th) %>%
   ungroup() %>%
-  mutate(start_year = as.factor(start_year))
+  mutate(
+    start_year = as.factor(start_year),
+    Highlight = ifelse(start_year == "2013", "2013", "Other")
+  )
 
 # Plot distribution of coldest days per winter
-ggplot(df_cold_yearly, aes(x = start_year, y = temp)) +
-  geom_violin(fill = "#3f0630", colour = "#3f0630", alpha = 0.75) +
-  labs(x = "Winter", y = "Temperature (°C)") +
+ggplot(df_cold_yearly, aes(x = start_year, y = temp, fill = Highlight, colour = Highlight)) +
+  geom_violin(alpha = 0.75) +
+  scale_fill_manual(values = c("2013" = "#c8398b", "Other" = "#3f0630")) +
+  scale_colour_manual(values = c("2013" = "#c8398b", "Other" = "#3f0630")) +
+  labs(x = "Winter", y = "Temperature (°C)", fill = NULL) +
   theme_minimal() +
   theme(
     axis.title.x = element_text(size = 16, margin = margin(t = 10)),
     axis.title.y = element_text(size = 16, margin = margin(r = 10)),
     axis.text = element_text(size = 10),
-    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 10)
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 10),
+    legend.position = "none"
   )
+
 
 ggsave("coldest_temp.png", width = 8, height = 5, dpi = 350)
 
@@ -661,15 +668,15 @@ acf_data <- acf(residuals(model_full), plot = FALSE, lag.max = 50)
 acf_df <- with(acf_data, data.frame(Lag = lag, ACF = acf))
 
 ggplot(acf_df, aes(x = Lag, y = ACF)) +
-  geom_hline(yintercept = 0, colour = "#000000", linewidth = 0.75) +
-  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 0.75) +
+  geom_hline(yintercept = 0, colour = "#000000", linewidth = 1) +
+  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 1) +
   geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
-             linetype = "dashed", colour = "#c8398b", linewidth = 0.75) +
+             linetype = "dashed", colour = "#c8398b", linewidth = 1) +
   labs(x = "Lag (Days)", y = "Autocorrelation Function") +
   theme_minimal() +
-  theme(axis.title.x = element_text(size = 16, margin = margin(t = 10)),
-    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
-    axis.text = element_text(size = 10)
+  theme(axis.title.x = element_text(size = 20, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 20, margin = margin(r = 10)), 
+    axis.text = element_text(size = 14)
   )
 
 ggsave("acf.png", width = 8, height = 5, dpi = 350)
@@ -763,7 +770,7 @@ ggplot(summary_df, aes(x = Year, y = Mean)) +
         axis.text = element_text(size = 10)
   )
 
-xggsave("scenario_analysis.png", width = 8, height = 5, dpi = 350)
+ggsave("scenario_analysis.png", width = 8, height = 5, dpi = 350)
 
 # Repeat for quantile regression (τ = 0.95)
 block_size <- 5
@@ -780,15 +787,15 @@ acf_data_quant <- acf(residuals(model_quant_full), plot = FALSE, lag.max = 50)
 acf_df_quant <- with(acf_data_quant, data.frame(Lag = lag, ACF = acf))
 
 ggplot(acf_df_quant, aes(x = Lag, y = ACF)) +
-  geom_hline(yintercept = 0, colour = "#000000", linewidth = 0.75) +
-  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 0.75) +
+  geom_hline(yintercept = 0, colour = "#000000", linewidth = 1) +
+  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 1) +
   geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
-             linetype = "dashed", colour = "#c8398b", linewidth = 0.75) +
+             linetype = "dashed", colour = "#c8398b", linewidth = 1) +
   labs(x = "Lag (Days)", y = "Autocorrelation Function") +
   theme_minimal() +
-  theme(axis.title.x = element_text(size = 16, margin = margin(t = 10)),
-        axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
-        axis.text = element_text(size = 10)
+  theme(axis.title.x = element_text(size = 20, margin = margin(t = 10)),
+        axis.title.y = element_text(size = 20, margin = margin(r = 10)), 
+        axis.text = element_text(size = 14)
   )
 
 ggsave("acf_quant.png", width = 8, height = 5, dpi = 350)
