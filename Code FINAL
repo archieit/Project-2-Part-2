@@ -89,29 +89,29 @@ df <- df %>%
   group_by(start_year) %>%
   mutate(
     T_rolling10 = zoo::rollmean(temp, k = 7, fill = NA, align = "center"),
-    Year_Label = ifelse(start_year == 2013, "2013    ", "Other Years")
+    Year_Label = ifelse(start_year == 2013, "2013    ", "Other Winters")
   ) %>%
   ungroup()
 
-# Plot 10-day average temperature for each winter
+# Plot 7-day average temperature for each winter
 ggplot(df, aes(x = DSN, y = T_rolling10, group = start_year,
                colour = Year_Label, linewidth = Year_Label, alpha = Year_Label)) +
   geom_line() +
-  scale_colour_manual(values = c("2013    " = "#c8398b", "Other Years" = "#C4C4C4"),
+  scale_colour_manual(values = c("2013    " = "#c8398b", "Other Winters" = "#C4C4C4"),
                       guide = guide_legend(override.aes = list(linewidth = 1))) +
-  scale_alpha_manual(values = c("2013    " = 1, "Other Years" = 0.75)) +
-  scale_linewidth_manual(values = c("2013    " = 1, "Other Years" = 0.5)) +
-  labs(x = "Days Since 1st November", y = "10-Day Average Temperature (°C)",
+  scale_alpha_manual(values = c("2013    " = 1, "Other Winters" = 0.75)) +
+  scale_linewidth_manual(values = c("2013    " = 1, "Other Winters" = 0.5)) +
+  labs(x = "Days Since 1st November", y = "Temperature (°C, 7-Day Avg)",
        colour = NULL, linewidth = NULL, alpha = NULL) +
   theme_minimal() +
   theme(
     legend.position = "bottom",
-    legend.text = element_text(size = 14),
+    legend.text = element_text(size = 16),
     legend.title = element_text(size = 16),
     strip.text = element_blank(),
-    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
-    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
-    axis.text = element_text(size = 10)
+    axis.title.x = element_text(size = 20, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 20, margin = margin(r = 10)), 
+    axis.text = element_text(size = 14)
   )
 
 ggsave("10_day_temp.png", width = 8, height = 5, dpi = 350)
@@ -144,6 +144,60 @@ ggplot(df_cold_yearly, aes(x = start_year, y = temp, fill = Highlight, colour = 
 
 
 ggsave("coldest_temp.png", width = 8, height = 5, dpi = 350)
+
+# Calculate 7-day rolling average wind speed
+df <- df %>%
+  arrange(start_year, DSN) %>%
+  group_by(start_year) %>%
+  mutate(
+    W_rolling10 = zoo::rollmean(wind, k = 7, fill = NA, align = "center"),
+    Year_Label = ifelse(start_year == 2013, "2013    ", "Other Winters")
+  ) %>%
+  ungroup()
+
+# Plot 7-day average wind speed for each winter
+ggplot(df, aes(x = DSN, y = W_rolling10, group = start_year,
+               colour = Year_Label, linewidth = Year_Label, alpha = Year_Label)) +
+  geom_line() +
+  scale_colour_manual(values = c("2013    " = "#c8398b", "Other Winters" = "#C4C4C4"),
+                      guide = guide_legend(override.aes = list(linewidth = 1))) +
+  scale_alpha_manual(values = c("2013    " = 1, "Other Winters" = 0.75)) +
+  scale_linewidth_manual(values = c("2013    " = 1, "Other Winters" = 0.5)) +
+  labs(x = "Days Since 1st November", y = "Wind Capacity Factor (7-Day Avg)     ",
+       colour = NULL, linewidth = NULL, alpha = NULL) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 16),
+    legend.title = element_text(size = 16),
+    strip.text = element_blank(),
+    axis.title.x = element_text(size = 20, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 20, margin = margin(r = 10)), 
+    axis.text = element_text(size = 14)
+  )
+
+ggsave("10_day_wind.png", width = 8, height = 5, dpi = 350)
+
+df_energy <- df %>%
+  mutate(
+    start_year = as.factor(start_year),
+    Highlight = ifelse(start_year == "2013", "2013", "Other")
+  )
+
+# Plot distribution of wind speeds per winter
+ggplot(df_energy, aes(x = start_year, y = wind, fill = Highlight, colour = Highlight)) +
+  geom_violin(alpha = 0.75) +
+  scale_fill_manual(values = c("2013" = "#c8398b", "Other" = "#3f0630")) +
+  scale_colour_manual(values = c("2013" = "#c8398b", "Other" = "#3f0630")) +
+  labs(x = "Winter", y = "Temperature (°C)", fill = NULL) +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
+    axis.title.y = element_text(size = 16, margin = margin(r = 10)),
+    axis.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 90, vjust = 0.5, size = 10),
+    legend.position = "none"
+  )
 
 # Format Date column in temperature data
 df_temp$Date <- as.POSIXct(df_temp$Date, format = "%d/%m/%Y %H:%M")
@@ -254,8 +308,8 @@ model5 <- lm(demand_gross ~ Winter + T_11_18:Winter + wdayindex + DSN + DSN2, da
 model6 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = df)
 model7 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight, data = df)
 model8 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight2, data = df)
-model9 <- lm(demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight2, data = df)
-model10 <- lm(demand_gross ~ Winter + T_weighted:Winter + solar_S + wdayindex + daylight2, data = df)
+model9 <- lm(demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight2, data = df)
+model10 <- lm(demand_gross ~ Winter + T_weighted:Winter + T_weighted:solar_S + wdayindex + daylight2, data = df)
 # Best model: model6
 
 # Compare model AIC and adjusted R²
@@ -515,10 +569,12 @@ models <- list(
   "Model 9" = demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight + daylight2,
   "Model 10" = demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
   "Model 11" = demand_gross ~ Winter + T_weighted:Winter + solar_S + wdayindex + daylight + daylight2,
-  "Model 12" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight + daylight2,
-  "Model 13" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:solar_S + wdayindex + daylight + daylight2,
-  "Model 14" = demand_gross ~ Winter + T_weighted:Winter + I(TO.x < 5) + wdayindex + daylight + daylight2,
-  "Model 15" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight + daylight2
+  "Model 12" = demand_gross ~ Winter + T_weighted:Winter + wind:Winter + wdayindex + daylight + daylight2,
+  "Model 13" = demand_gross ~ Winter + T_weighted:Winter + solar_S:Winter + wdayindex + daylight + daylight2,
+  "Model 14" = demand_gross ~ Winter + T_weighted:Winter + wind:Winter + solar_S:Winter + wdayindex + daylight + daylight2,
+  "Model 15" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:solar_S + wdayindex + daylight + daylight2,
+  "Model 16" = demand_gross ~ Winter + T_weighted:Winter + I(TO.x < 5) + wdayindex + daylight + daylight2,
+  "Model 17" = demand_gross ~ Winter + T_weighted:Winter + T_weighted:wind + wdayindex + daylight + daylight2
 )
 # Best model: Model 10
 
@@ -832,7 +888,7 @@ weather_data_qr <- lapply(years, function(y) {
   left_join(scenario_base, weather_y, by = "DSN") %>% select(-DSN)
 })
 names(weather_data_qr) <- paste0("weather_", years)
-
+8
 model_matrices_qr <- lapply(weather_data_qr, function(data) {
   model.matrix(~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2, data = data)
 })
@@ -854,8 +910,8 @@ summary_df_qr <- max_df_qr %>%
   group_by(Year) %>%
   summarise(
     Mean = mean(Max_Predicted),
-    Lower = quantile(Max_Predicted, 0.025),
-    Upper = quantile(Max_Predicted, 0.975)
+    Lower = min(Max_Predicted),
+    Upper = max(Max_Predicted)
   )
 
 # Plot quantile scenario results
@@ -871,4 +927,4 @@ ggplot(summary_df_qr, aes(x = Year, y = Mean)) +
         axis.text = element_text(size = 10)
   )
 
-ggsave("scenario_analysis_quant.png", width = 8, height = 5, dpi = 350)
+ggsave("scenario_analysis_quant_full.png", width = 8, height = 5, dpi = 350)
