@@ -834,32 +834,10 @@ B <- 1000
 set.seed(123)
 df_no_2013 <- df %>% filter(Winter != "2013")
 
-# Fit full model
-model_quant_full <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
-                       tau = 0.95, data = df)
-
-# Compute and plot ACF of residuals
-acf_data_quant <- acf(residuals(model_quant_full), plot = FALSE, lag.max = 50)
-acf_df_quant <- with(acf_data_quant, data.frame(Lag = lag, ACF = acf))
-
-ggplot(acf_df_quant, aes(x = Lag, y = ACF)) +
-  geom_hline(yintercept = 0, colour = "#000000", linewidth = 1) +
-  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 1) +
-  geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
-             linetype = "dashed", colour = "#c8398b", linewidth = 1) +
-  labs(x = "Lag (Days)", y = "Autocorrelation Function") +
-  theme_minimal() +
-  theme(axis.title.x = element_text(size = 20, margin = margin(t = 10)),
-        axis.title.y = element_text(size = 20, margin = margin(r = 10)), 
-        axis.text = element_text(size = 14)
-  )
-
-ggsave("acf_quant.png", width = 8, height = 5, dpi = 350)
-
 # Bootstrap loop (quantile regression)
 boot_coefs_qr <- replicate(B, {
   boot_data <- generate_block_sample(df_no_2013, block_size, nrow(df_no_2013))
-  model <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
+  model <- rq(demand_gross ~ Winter + T_weighted:Winter + wind:Winter + wdayindex + daylight + daylight2,
               tau = 0.95, data = boot_data)
   coef(model)
 }, simplify = FALSE)
@@ -867,12 +845,14 @@ boot_coefs_qr <- replicate(B, {
 boot_coefs_mat_qr <- do.call(rbind, boot_coefs_qr)
 
 # Reinsert Winter2013 coefficients
-model_quant_no_2013 <- rq(demand_gross ~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2,
+model_quant_full <- rq(demand_gross ~ Winter + T_weighted:Winter + wind:Winter + wdayindex + daylight + daylight2,
+                       tau = 0.95, data = df)
+model_quant_no_2013 <- rq(demand_gross ~ Winter + T_weighted:Winter + wind:Winter + wdayindex + daylight + daylight2,
                           tau = 0.95, data = df_no_2013)
 
 full_names_qr <- names(coef(model_quant_full))
 reduced_names_qr <- names(coef(model_quant_no_2013))
-winter2013_coefs_qr <- coef(model_quant_full)[c("Winter2013", "Winter2013:T_weighted")]
+winter2013_coefs_qr <- coef(model_quant_full)[c("Winter2013", "Winter2013:T_weighted", "Winter2013:wind")]
 
 boot_coefs_full_qr <- t(apply(boot_coefs_mat_qr, 1, function(row) {
   row_named <- setNames(row, reduced_names_qr)
@@ -884,13 +864,13 @@ boot_coefs_full_qr <- t(apply(boot_coefs_mat_qr, 1, function(row) {
 scenario_base <- df %>% filter(Winter == "2013") %>% select(Winter, wdayindex, DSN)
 
 weather_data_qr <- lapply(years, function(y) {
-  weather_y <- df %>% filter(Winter == y) %>% select(wind, solar_S, T_weighted, daylight, daylight2, DSN)
+  weather_y <- df %>% filter(Winter == y) %>% select(T_weighted, wind, daylight, daylight2, DSN)
   left_join(scenario_base, weather_y, by = "DSN") %>% select(-DSN)
 })
 names(weather_data_qr) <- paste0("weather_", years)
-8
+
 model_matrices_qr <- lapply(weather_data_qr, function(data) {
-  model.matrix(~ Winter + T_weighted:Winter + wind + solar_S + wdayindex + daylight + daylight2, data = data)
+  model.matrix(~ Winter + T_weighted:Winter + wind:Winter + wdayindex + daylight + daylight2, data = data)
 })
 names(model_matrices_qr) <- names(weather_data_qr)
 
@@ -910,8 +890,8 @@ summary_df_qr <- max_df_qr %>%
   group_by(Year) %>%
   summarise(
     Mean = mean(Max_Predicted),
-    Lower = min(Max_Predicted),
-    Upper = max(Max_Predicted)
+    Lower = quantile(Max_Predicted, 0.025),
+    Upper = quantile(Max_Predicted, 0.975)
   )
 
 # Plot quantile scenario results
@@ -919,7 +899,7 @@ ggplot(summary_df_qr, aes(x = Year, y = Mean)) +
   geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630", linewidth = 0.75) +
   geom_point(colour = "#c8398b", size = 3.5) +
   geom_hline(yintercept = peak_2013, colour = "#000000", linetype = "dashed", linewidth = 0.75) +
-  labs(x = "Winter", y = "Max Predicted Demand (MW)") +
+  labs(x = "Year", y = "Max Predicted Demand (MW)") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
         axis.title.x = element_text(size = 16, margin = margin(t = 10)),
@@ -927,4 +907,4 @@ ggplot(summary_df_qr, aes(x = Year, y = Mean)) +
         axis.text = element_text(size = 10)
   )
 
-ggsave("scenario_analysis_quant_full.png", width = 8, height = 5, dpi = 350)
+ggsave("scenario_analysis_quant.png", width = 8, height = 5, dpi = 350)
