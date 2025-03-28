@@ -715,28 +715,6 @@ ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
 ggsave("95_demand_pdf_quant.png", width = 8, height = 5, dpi = 350)
 
 
-## Scenario Analysis
-# Fit full model
-model_full <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = df)
-
-# Compute and plot ACF of residuals
-acf_data <- acf(residuals(model_full), plot = FALSE, lag.max = 50)
-acf_df <- with(acf_data, data.frame(Lag = lag, ACF = acf))
-
-ggplot(acf_df, aes(x = Lag, y = ACF)) +
-  geom_hline(yintercept = 0, colour = "#000000", linewidth = 1) +
-  geom_segment(aes(xend = Lag, yend = 0), colour = "#3f0630", linewidth = 1) +
-  geom_hline(yintercept = c(-1.96 / sqrt(acf_data$n.used), 1.96 / sqrt(acf_data$n.used)),
-             linetype = "dashed", colour = "#c8398b", linewidth = 1) +
-  labs(x = "Lag (Days)", y = "Autocorrelation Function") +
-  theme_minimal() +
-  theme(axis.title.x = element_text(size = 20, margin = margin(t = 10)),
-    axis.title.y = element_text(size = 20, margin = margin(r = 10)), 
-    axis.text = element_text(size = 14)
-  )
-
-ggsave("acf.png", width = 8, height = 5, dpi = 350)
-
 # Set bootstrap parameters
 block_size <- 5
 B <- 1000
@@ -756,7 +734,7 @@ generate_block_sample <- function(data, block_size, n_obs) {
 # Bootstrap loop (linear model)
 boot_coefs_block <- replicate(B, {
   boot_data <- generate_block_sample(df_no_2013, block_size, nrow(df_no_2013))
-  model <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = boot_data)
+  model <- lm(demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight + daylight2, data = boot_data)
   coef(model)
 }, simplify = FALSE)
 
@@ -764,7 +742,7 @@ boot_coefs_block <- replicate(B, {
 boot_coefs_mat <- do.call(rbind, boot_coefs_block)
 
 # Reinsert Winter2013 coefficients
-model_no_2013 <- lm(demand_gross ~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = df_no_2013)
+model_no_2013 <- lm(demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight + daylight2, data = df_no_2013)
 full_names <- names(coef(model_full))
 reduced_names <- names(coef(model_no_2013))
 winter2013_coefs <- coef(model_full)[c("Winter2013", "Winter2013:T_weighted")]
@@ -780,14 +758,14 @@ scenario_base <- df %>% filter(Winter == "2013") %>% select(Winter, wdayindex, D
 years <- 1991:2012
 
 weather_data <- lapply(years, function(y) {
-  weather_y <- df %>% filter(Winter == y) %>% select(T_weighted, daylight, daylight2, DSN)
+  weather_y <- df %>% filter(Winter == y) %>% select(T_weighted, wind, daylight, daylight2, DSN)
   left_join(scenario_base, weather_y, by = "DSN") %>% select(-DSN)
 })
 names(weather_data) <- paste0("weather_", years)
 
 # Build model matrices
 model_matrices <- lapply(weather_data, function(data) {
-  model.matrix(~ Winter + T_weighted:Winter + wdayindex + daylight + daylight2, data = data)
+  model.matrix(~ Winter + T_weighted:Winter + wind + wdayindex + daylight + daylight2, data = data)
 })
 names(model_matrices) <- names(weather_data)
 
@@ -818,7 +796,7 @@ ggplot(summary_df, aes(x = Year, y = Mean)) +
   geom_errorbar(aes(ymin = Lower, ymax = Upper), width = 0.5, colour = "#3f0630", linewidth = 0.75) +
   geom_point(colour = "#c8398b", size = 3.5) +
   geom_hline(yintercept = peak_2013, colour = "#000000", linetype = "dashed", linewidth = 0.75) +
-  labs(x = "Winter", y = "Max Predicted Demand (MW)") +
+  labs(x = "Year", y = "Max Predicted Demand (MW)") +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
         axis.title.x = element_text(size = 16, margin = margin(t = 10)),
