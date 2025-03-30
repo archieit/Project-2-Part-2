@@ -361,9 +361,7 @@ models <- list(
   "11" = model11,
   "12" = model12,
   "13" = model13,
-  "14" = model14,
-  "15" = model15,
-  "16" = model16
+  "14" = model14
 )
 
 # View model performance metrics
@@ -387,8 +385,9 @@ print(c("RMSE (18 3-day avg Temp)" = RMSE_3day,
         "RMSE (18 Temp)" = RMSE_6pm,
         "RMSE (Baseline)" = RMSE_base))
 
-# Add predicted values from model6
-df <- df %>% mutate(predicted_demand = predict(model14, newdata = df))
+# Add predicted values from final model
+model_final <- lm(demand_gross ~ Winter + T_weighted:Winter + wind + wdayindex + daylight + daylight2, data = df)
+df <- df %>% mutate(predicted_demand = predict(model_final, newdata = df))
 
 # Identify max demand day for each Winter
 peak_days <- df %>%
@@ -415,11 +414,11 @@ ggsave("actual_predicted.png", width = 8, height = 5, dpi = 350)
 
 # Add diagnostics to dataframe
 df <- df %>%
-  mutate(Fitted = predict(model14),
-         Residuals = residuals(model14),
-         Std_Residuals = rstandard(model14),
-         Leverage = hatvalues(model14),
-         CookD = cooks.distance(model14),
+  mutate(Fitted = predict(model_final),
+         Residuals = residuals(model_final),
+         Std_Residuals = rstandard(model_final),
+         Leverage = hatvalues(model_final),
+         CookD = cooks.distance(model_final),
          ID = row_number())
 
 # Compute LOWESS smoothed lines
