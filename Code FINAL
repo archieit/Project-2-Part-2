@@ -526,49 +526,6 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
 
 ggsave("full_demand_pdf.png", width = 8, height = 5, dpi = 350)
 
-# Define zoom range for top demand
-upper_bound <- max(df$demand_gross, na.rm = TRUE)
-lower_bound <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
-q99 <- quantile(df$demand_gross, 0.99, na.rm = TRUE)
-
-# Get max density values for scaling
-density_actual <- density(df$demand_gross, na.rm = TRUE)
-density_predicted <- density(df$predicted_demand, na.rm = TRUE)
-y_upper_limit <- 0.5 * max(max(density_actual$y, na.rm = TRUE),
-                           max(density_predicted$y, na.rm = TRUE))
-
-# Filter top 5% of demand values
-q95 <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
-df_q95 <- df %>% filter(demand_gross >= q95)
-
-# Reshape filtered data for plot
-df_q95_long <- df_q95 %>%
-  select(demand_gross, predicted_demand) %>%
-  pivot_longer(cols = everything(),
-               names_to = "Type", values_to = "Demand") %>%
-  mutate(Type = recode(Type,
-                       demand_gross = "Actual Demand    ",
-                       predicted_demand = "Predicted Demand"))
-
-# Density plot for top 5% of demand
-ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
-  geom_density(na.rm = TRUE, linewidth = 0.75) +
-  scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
-                      guide = guide_legend(override.aes = list(linewidth = 1))) +
-  labs(x = "Demand (MW)", y = "Probability Density", colour = NULL) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 16),
-    strip.text = element_blank(),
-    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
-    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
-    axis.text = element_text(size = 10)
-  )
-
-ggsave("95_demand_pdf.png", width = 8, height = 5, dpi = 350)
-
 
 ## Quantile Regression
 # Load libraries
@@ -698,38 +655,6 @@ ggplot(df_long, aes(x = Demand, colour = Type)) +
   )
 
 ggsave("full_demand_pdf_quant.png", width = 8, height = 5, dpi = 350)
-
-# Filter top 5% of demand
-q95 <- quantile(df$demand_gross, 0.95, na.rm = TRUE)
-df_q95 <- df %>% filter(demand_gross >= q95)
-
-# Reshape for density plot (top 5%)
-df_q95_long <- df_q95 %>%
-  select(demand_gross, predicted_demand_quant) %>%
-  pivot_longer(cols = everything(),
-               names_to = "Type", values_to = "Demand") %>%
-  mutate(Type = recode(Type,
-                       demand_gross = "Actual Demand    ",
-                       predicted_demand_quant = "Predicted Demand"))
-
-# Density plot (top 5%)
-ggplot(df_q95_long, aes(x = Demand, colour = Type)) +
-  geom_density(na.rm = TRUE, linewidth = 0.75) +
-  scale_colour_manual(values = c("Actual Demand    " = "#3f0630", "Predicted Demand" = "#c8398b"),
-                      guide = guide_legend(override.aes = list(linewidth = 1))) +
-  labs(x = "Demand (MW)", y = "Probability Density", colour = NULL) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 14),
-    legend.title = element_text(size = 16),
-    strip.text = element_blank(),
-    axis.title.x = element_text(size = 16, margin = margin(t = 10)),
-    axis.title.y = element_text(size = 16, margin = margin(r = 10)), 
-    axis.text = element_text(size = 10)
-  )
-
-ggsave("95_demand_pdf_quant.png", width = 8, height = 5, dpi = 350)
 
 
 ## Scenario Analysis
